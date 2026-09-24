@@ -1,0 +1,177 @@
+{
+  "capability_id": "fetch-account-balance",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "Looks up a member and reads their current checking and savings balances.",
+  "goal_template": "Fetch the account balance for member 10001.",
+  "target_app": {
+    "app_id": "cu-servicing-console",
+    "tenant_id": null,
+    "base_url": "http://127.0.0.1:8000",
+    "entry_path": "/"
+  },
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "number",
+      "required": true,
+      "description": "Value for member_id.",
+      "example": "10001"
+    }
+  ],
+  "outputs": [],
+  "steps": [
+    {
+      "index": 0,
+      "action": "navigate",
+      "description": "Start at the target entry point.",
+      "target": null,
+      "value_template": "http://127.0.0.1:8000/",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 1,
+      "action": "click",
+      "description": "Navigate to Accounts section to find member balance",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Accounts"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Accounts"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(2) > tbody > tr > td:nth-of-type(1) > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 44,
+              "y": 44
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 2,
+      "action": "fill",
+      "description": "Enter member ID to search account",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "textbox",
+              "name": "e.g. 10001"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "e.g. 10001"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 150,
+              "y": 127
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "{member_id}",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 3,
+      "action": "click",
+      "description": "Submit search to fetch account details for member 10001",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Search"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Search"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td:nth-of-type(3) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 230,
+              "y": 127
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    }
+  ],
+  "final_checkpoint": {
+    "kind": "url_contains",
+    "value": "/member/{member_id}",
+    "target": null
+  },
+  "business_outcomes": [],
+  "recoverable_conditions": [],
+  "overall_risk": "safe",
+  "created_from_run_id": "discovery_20260923T214406Z",
+  "created_at": "2026-09-23T21:44:15.031864Z"
+}

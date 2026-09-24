@@ -1,0 +1,65 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Member Record</b></td></tr>
+    <tr><td>Name:</td><td>{{ member.name }}</td></tr>
+    <tr><td>Member ID:</td><td>{{ member_id }}</td></tr>
+    <tr><td>Member Since:</td><td>{{ member.member_since }}</td></tr>
+    <tr><td>Checking Balance:</td><td>${{ "%.2f"|format(member.checking_balance) }}</td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td><b>Savings Detail</b></td></tr>
+    <tr><td>
+      <iframe src="/member/{{ member_id }}/balance-frame" width="320" height="90" frameborder="1"></iframe>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="5"><b>Sub-Accounts</b></td></tr>
+    {% if subaccounts %}
+    <tr bgcolor="#c7c4bd">
+      <td><b>ID</b></td><td><b>Type</b></td><td><b>Balance</b></td><td><b>Opened</b></td><td><b>Source</b></td>
+    </tr>
+    {% for sa in subaccounts %}
+    <tr>
+      <td>{{ sa.id }}</td>
+      <td>{{ sa.type|capitalize }}</td>
+      <td>${{ "%.2f"|format(sa.balance) }}</td>
+      <td>{{ sa.created_at }}</td>
+      <td>{{ sa.source }}{% if sa.run_id %} ({{ sa.run_id }}){% endif %}</td>
+    </tr>
+    {% endfor %}
+    {% else %}
+    <tr><td colspan="5">No sub-accounts on file.</td></tr>
+    {% endif %}
+  </table>
+</td></tr>
+</table>
+<br>
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td><a href="/member/{{ member_id }}/new-subaccount">Open a New Sub-Account for this Member</a></td></tr>
+    <tr><td><a href="/member/{{ member_id }}/transactions">View Transaction History</a></td></tr>
+    <tr><td><a href="/member/{{ member_id }}/edit">Edit Contact Info</a></td></tr>
+    <tr><td><a href="/member/{{ member_id }}/transfer">Transfer Funds</a></td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/accounts">Back to Member Lookup</a>
+</body>
+</html>

@@ -1,0 +1,16 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="8" cellspacing="0" border="1" bgcolor="#e3f2d9">
+<tr><td>
+<b>Contact info updated.</b><br><br>
+Member: {{ member_id }} ({{ member.name }})<br>
+Phone: {{ member.phone }}<br>
+Address: {{ member.address }}
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}">Back to Member Record</a>
+</body>
+</html>

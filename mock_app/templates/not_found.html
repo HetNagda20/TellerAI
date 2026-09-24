@@ -1,0 +1,14 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="8" cellspacing="0" border="1">
+<tr><td>
+<b>No member found for ID "{{ member_id }}".</b><br>
+Check the ID and try again.
+</td></tr>
+</table>
+<br>
+<a href="/{{ active_tab or 'accounts' }}">Back to Member Lookup</a>
+</body>
+</html>

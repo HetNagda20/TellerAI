@@ -1,0 +1,17 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="8" cellspacing="0" border="1" bgcolor="#e3f2d9">
+<tr><td>
+<b>Transfer completed.</b><br><br>
+Confirmation Number: <b>{{ confirmation_number }}</b><br>
+From: Member {{ member_id }} ({{ member.name }}) &mdash; {{ from_account|capitalize }}<br>
+To: Member {{ to_member_id }} ({{ to_member.name }}) &mdash; {{ to_account|capitalize }}<br>
+Amount: ${{ "%.2f"|format(amount) }}
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}">Back to Member Record</a>
+</body>
+</html>

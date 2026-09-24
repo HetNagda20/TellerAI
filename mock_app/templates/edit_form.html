@@ -1,0 +1,35 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Edit Contact Info &mdash; Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    {% if error %}
+    <tr><td colspan="2"><font color="red">{{ error }}</font></td></tr>
+    {% endif %}
+    <tr><td colspan="2">
+      <form method="post" action="/member/{{ member_id }}/edit">
+        <table cellpadding="2" cellspacing="0" border="0">
+          <tr>
+            <td>Phone:</td>
+            <td><input type="text" name="phone" size="16" value="{{ member.phone }}"></td>
+          </tr>
+          <tr>
+            <td>Mailing Address:</td>
+            <td><input type="text" name="address" size="40" value="{{ member.address }}"></td>
+          </tr>
+          <tr>
+            <td colspan="2"><input type="submit" value="Save Changes"></td>
+          </tr>
+        </table>
+      </form>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}">Back to Member Record</a>
+</body>
+</html>

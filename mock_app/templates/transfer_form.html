@@ -1,0 +1,53 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Transfer Funds &mdash; From Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    {% if error %}
+    <tr><td colspan="2"><font color="red">{{ error }}</font></td></tr>
+    {% endif %}
+    <tr><td colspan="2">
+      <form method="post" action="/member/{{ member_id }}/transfer">
+        <table cellpadding="2" cellspacing="0" border="0">
+          <tr>
+            <td>From Account:</td>
+            <td>
+              <select name="from_account">
+                <option value="checking">Checking</option>
+                <option value="savings">Savings</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td>To Member ID:</td>
+            <td><input type="text" name="to_member_id" size="12"></td>
+          </tr>
+          <tr>
+            <td>To Account:</td>
+            <td>
+              <select name="to_account">
+                <option value="checking">Checking</option>
+                <option value="savings">Savings</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td>Amount ($):</td>
+            <td><input type="text" name="amount" size="10"></td>
+          </tr>
+          <tr>
+            <td colspan="2"><input type="submit" value="Review Transfer"></td>
+          </tr>
+        </table>
+      </form>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}">Back to Member Record</a>
+</body>
+</html>

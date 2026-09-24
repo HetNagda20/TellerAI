@@ -1,0 +1,50 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Open New Sub-Account &mdash; Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    {% if error %}
+    <tr><td colspan="2"><font color="red">{{ error }}</font></td></tr>
+    {% endif %}
+    <tr><td colspan="2">
+      <form method="post" action="/member/{{ member_id }}/new-subaccount">
+        <table cellpadding="2" cellspacing="0" border="0">
+          <tr>
+            <td>Account Type:</td>
+            <td>
+              <select name="account_type">
+                <option value="savings">Savings</option>
+                <option value="checking">Checking</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td>Initial Deposit ($):</td>
+            <td><input type="text" name="initial_deposit" size="10"></td>
+          </tr>
+          <tr>
+            <td>Funding Source:</td>
+            <td>
+              <select name="funding_source">
+                <option value="cash">Cash Deposit</option>
+                <option value="checking">Transfer from Checking</option>
+                <option value="savings">Transfer from Savings</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2"><input type="submit" value="Review"></td>
+          </tr>
+        </table>
+      </form>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}">Back to Member Record</a>
+</body>
+</html>

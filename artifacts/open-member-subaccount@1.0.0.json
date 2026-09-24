@@ -1,0 +1,590 @@
+{
+  "capability_id": "open-member-subaccount",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "Opens a new sub-account for an existing member, funded from a specified source account, and reaches the confirmation screen.",
+  "goal_template": "Open a new savings sub-account for member 20001 with a  deposit, funded from checking, and reach the confirmation screen.",
+  "target_app": {
+    "app_id": "cu-servicing-console",
+    "tenant_id": null,
+    "base_url": "http://127.0.0.1:8000",
+    "entry_path": "/"
+  },
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "number",
+      "required": true,
+      "description": "Value for member_id.",
+      "example": "20001"
+    },
+    {
+      "name": "initial_deposit",
+      "type": "number",
+      "required": true,
+      "description": "Value for initial_deposit.",
+      "example": "80"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "new_subaccount_id",
+      "type": "string",
+      "description": "Value read for new_subaccount_id.",
+      "source_step": 11
+    }
+  ],
+  "steps": [
+    {
+      "index": 0,
+      "action": "navigate",
+      "description": "Start at the target entry point.",
+      "target": null,
+      "value_template": "http://127.0.0.1:{initial_deposit}00/",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 1,
+      "action": "click",
+      "description": "Navigate to Accounts section to open a new sub-account",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Accounts"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Accounts"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(2) > tbody > tr > td:nth-of-type(1) > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 44,
+              "y": 44
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 2,
+      "action": "fill",
+      "description": "Enter member ID to search for account",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "textbox",
+              "name": "e.g. 10001"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "e.g. 10001"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 150,
+              "y": 127
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "{member_id}",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 3,
+      "action": "click",
+      "description": "Search for member 20001",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Search"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Search"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td:nth-of-type(3) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 230,
+              "y": 127
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 4,
+      "action": "click",
+      "description": "Proceed to open a new sub-account for the member as originally planned.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Open a New Sub-Account for this Member"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Open a New Sub-Account for this Member"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(1) > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 154,
+              "y": 509
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 5,
+      "action": "click",
+      "description": "Continue past session renewal notice to reach the new sub-account form.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Continue"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Continue"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "tbody > tr > td > form > input:nth-of-type(2)"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 54,
+              "y": 155
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 6,
+      "action": "select",
+      "description": "Select account type as Savings for the new sub-account.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "combobox",
+              "name": "Savings\nChecking"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Savings\nChecking"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(1) > td:nth-of-type(2) > select"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 180,
+              "y": 120
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "Savings",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 7,
+      "action": "fill",
+      "description": "Enter the initial deposit amount, since goal specifies a deposit but no explicit value was given; using $100 as a reasonable default consistent with existing sub-accounts.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(2) > td:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 181,
+              "y": 144
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "100",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 8,
+      "action": "select",
+      "description": "Set funding source to checking as specified by the goal.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "combobox",
+              "name": "Cash Deposit\nTransfer from Checking\nTransfer from Savings"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Cash Deposit\nTransfer from Checking\nTransfer from Savings"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(3) > td:nth-of-type(2) > select"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 222,
+              "y": 168
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "Transfer from Checking",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 9,
+      "action": "click",
+      "description": "Proceed to review step with the entered form data.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Review"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Review"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(4) > td > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 48,
+              "y": 192
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe"
+    },
+    {
+      "index": 10,
+      "action": "click",
+      "description": "Confirm and open the new savings sub-account to reach confirmation screen.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Confirm & Open Account"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Confirm & Open Account"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "tbody > tr:nth-of-type(5) > td > form > input:nth-of-type(4)"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 97,
+              "y": 186
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "confirm"
+    },
+    {
+      "index": 11,
+      "action": "read_text",
+      "description": "Read the new sub-account ID from the confirmation screen for reporting.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "text",
+              "name": "SA-5007"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "SA-5007"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(3) > tbody > tr > td > b:nth-of-type(2)"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 197,
+              "y": 134
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": "new_subaccount_id",
+      "checkpoint": null,
+      "risk": "safe"
+    }
+  ],
+  "final_checkpoint": {
+    "kind": "url_contains",
+    "value": "/member/{member_id}/new-subaccount/confirm",
+    "target": null
+  },
+  "business_outcomes": [
+    {
+      "name": "member_not_found",
+      "detect": {
+        "kind": "text_contains",
+        "value": "No member found",
+        "target": null
+      },
+      "description": "The given member ID does not exist in the core system."
+    },
+    {
+      "name": "account_locked",
+      "detect": {
+        "kind": "text_contains",
+        "value": "Account Locked.",
+        "target": null
+      },
+      "description": "Member has a compliance hold; write actions are blocked until cleared by a supervisor."
+    },
+    {
+      "name": "invalid_deposit_amount",
+      "detect": {
+        "kind": "text_contains",
+        "value": "Initial deposit must be a number of at least $25.00.",
+        "target": null
+      },
+      "description": "The requested initial deposit violates the minimum-deposit business rule."
+    },
+    {
+      "name": "insufficient_funds",
+      "detect": {
+        "kind": "text_contains",
+        "value": "Insufficient funds",
+        "target": null
+      },
+      "description": "The funding/source account does not have enough balance to cover the requested amount."
+    }
+  ],
+  "recoverable_conditions": [
+    {
+      "name": "session_renewal_interstitial",
+      "detect": {
+        "kind": "text_contains",
+        "value": "Your session is being renewed.",
+        "target": null
+      },
+      "recovery_action": "click",
+      "recovery_target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Continue"
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "recovery_value": null,
+      "description": "A known interstitial that appears for some sessions before a write form loads; dismiss and continue."
+    }
+  ],
+  "overall_risk": "confirm",
+  "created_from_run_id": "discovery_20260923T230037Z",
+  "created_at": "2026-09-23T23:01:09.213769Z"
+}

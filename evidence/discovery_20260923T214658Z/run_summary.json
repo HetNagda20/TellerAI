@@ -1,0 +1,17 @@
+{
+  "run_id": "discovery_20260923T214658Z",
+  "success": true,
+  "outcome": "done",
+  "summary": "Successfully opened a new savings sub-account (SA-5007) for member 10001 (Alice Johnson) with a $60.00 initial deposit funded via Transfer from Checking. Confirmation screen displayed \"Sub-account opened successfully.\" with account ID SA-5007.",
+  "outputs": {
+    "confirmation_message": "Sub-account opened successfully.",
+    "new_subaccount_id": "SA-5007",
+    "initial_deposit": "$60.00",
+    "funding_source": "Transfer from Checking"
+  },
+  "goal": "Open a new savings sub-account for member 10001 with a $60 deposit, funded from checking, and reach the confirmation screen.",
+  "target_url": "http://127.0.0.1:8000/",
+  "started_at": "2026-09-23T21:46:58.214101+00:00",
+  "ended_at": "2026-09-23T21:47:27.186430+00:00",
+  "evidence_dir": "/Users/hetnagda/Desktop/Project/TellerAI/evidence/discovery_20260923T214658Z"
+}

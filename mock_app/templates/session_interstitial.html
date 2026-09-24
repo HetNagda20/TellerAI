@@ -1,0 +1,17 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="8" cellspacing="0" border="2" bordercolor="#996600" bgcolor="#fff4d6">
+<tr><td>
+<b>Your session is being renewed.</b><br>
+This happens automatically for security. Click Continue to proceed to the form.
+<br><br>
+<form method="get" action="/member/{{ member_id }}/new-subaccount">
+  <input type="hidden" name="ack" value="1">
+  <input type="submit" value="Continue">
+</form>
+</td></tr>
+</table>
+</body>
+</html>

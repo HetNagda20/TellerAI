@@ -1,0 +1,12 @@
+{
+  "run_id": "discovery_20260923T214953Z",
+  "success": false,
+  "outcome": "max_steps",
+  "summary": "Stopped after 20 steps without calling done.",
+  "outputs": {},
+  "goal": "Open a new savings sub-account for member 10002 with a $60 deposit, funded from checking, and reach the confirmation screen.",
+  "target_url": "http://127.0.0.1:8000/",
+  "started_at": "2026-09-23T21:49:53.126746+00:00",
+  "ended_at": "2026-09-23T21:50:34.697638+00:00",
+  "evidence_dir": "/Users/hetnagda/Desktop/Project/TellerAI/evidence/discovery_20260923T214953Z"
+}

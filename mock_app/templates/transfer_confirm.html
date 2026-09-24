@@ -1,0 +1,27 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Confirm Transfer</b></td></tr>
+    <tr><td>From:</td><td>Member {{ member_id }} ({{ member.name }}) &mdash; {{ from_account|capitalize }}</td></tr>
+    <tr><td>To:</td><td>Member {{ to_member_id }} ({{ to_member.name }}) &mdash; {{ to_account|capitalize }}</td></tr>
+    <tr><td>Amount:</td><td>${{ "%.2f"|format(amount) }}</td></tr>
+    <tr><td colspan="2">
+      <form method="post" action="/member/{{ member_id }}/transfer/confirm">
+        <input type="hidden" name="from_account" value="{{ from_account }}">
+        <input type="hidden" name="to_member_id" value="{{ to_member_id }}">
+        <input type="hidden" name="to_account" value="{{ to_account }}">
+        <input type="hidden" name="amount" value="{{ amount }}">
+        <input type="submit" value="Confirm Transfer">
+      </form>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}/transfer">Back to Form</a>
+</body>
+</html>

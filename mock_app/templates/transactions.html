@@ -1,0 +1,37 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+<b>Transaction History &mdash; Member {{ member_id }} ({{ member.name }})</b>
+</td></tr>
+</table>
+<br>
+<table cellpadding="4" cellspacing="0" border="1" width="100%">
+<tr bgcolor="#c7c4bd">
+  <td><b>Date/Time</b></td>
+  <td><b>Description</b></td>
+  <td><b>Account</b></td>
+  <td><b>Amount</b></td>
+  <td><b>Balance After</b></td>
+  <td><b>Source</b></td>
+</tr>
+{% for tx in transactions %}
+<tr>
+  <td>{{ tx.timestamp }}</td>
+  <td>{{ tx.description }}</td>
+  <td>{{ tx.account|capitalize }}</td>
+  <td>{{ "%.2f"|format(tx.amount) }}</td>
+  <td>{{ "%.2f"|format(tx.balance_after) }}</td>
+  <td>{{ tx.source }}{% if tx.run_id %} ({{ tx.run_id }}){% endif %}</td>
+</tr>
+{% endfor %}
+{% if not transactions %}
+<tr><td colspan="6">No transactions on file.</td></tr>
+{% endif %}
+</table>
+<br>
+<a href="/member/{{ member_id }}">Back to Member Record</a>
+</body>
+</html>
