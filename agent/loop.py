@@ -5,6 +5,16 @@ comes from Claude, grounded in the accessibility-style snapshot (see
 perception.py) — never from hardcoded logic. The loop stops when the model
 calls `done` (goal met), `give_up` (routed to human escalation as a "stuck"
 event), or a hard stopping condition (max steps / wall-clock timeout) is hit.
+
+Human escalation (give_up, a proactive gesture, or a file-touch request) is
+learning, not just a pause: whatever the human does on the live page while
+they have control is captured as real Step-shaped entries
+(source="human_intervention", see agent/executor.py's record_human_action)
+and merged into the same `executor.steps` list the LLM's own actions land
+in, in the order everything actually happened. The artifact recorder
+(artifact/recorder.py) doesn't need to know or care which steps came from
+which source to build a correct, replayable sequence — see
+_record_captured_actions below for where that merge happens.
 """
 
 from __future__ import annotations
@@ -49,6 +59,30 @@ class DiscoveryResult:
 
 def _run_id() -> str:
     return datetime.now(timezone.utc).strftime("discovery_%Y%m%dT%H%M%SZ")
+
+
+def _record_captured_actions(executor: Executor, captured: list[dict]) -> str:
+    """Converts every {action, descriptor, value} a human performed during an
+    intervention into a real StepLog (source="human_intervention"), in order,
+    via Executor.record_human_action — the same StepLog list the recorder later
+    turns into artifact Steps, so a human-taught action is not a side note, it's
+    part of the sequence (requirements C/D/F). Returns a short summary string to
+    fold into the feedback message the LLM sees next, so it knows what changed
+    on the page and why, not just that something did.
+    """
+    if not captured:
+        return ""
+    lines = []
+    for entry in captured:
+        log = executor.record_human_action(
+            action=entry["action"],
+            descriptor=entry["descriptor"],
+            value=entry.get("value"),
+            url=executor.page.url,
+        )
+        detail = f" = {log.value!r}" if log.value else ""
+        lines.append(f"  - [human] {log.action} on {log.element_role} \"{log.element_name}\"{detail}")
+    return "\nRecorded as replayable step(s):\n" + "\n".join(lines)
 
 
 def run_discovery(
@@ -134,12 +168,13 @@ def run_discovery(
                     if not record.resume:
                         outcome, summary = "human_stopped", f"Human operator ended the run: {record.human_note}"
                         break
+                    captured_summary = _record_captured_actions(executor, record.captured_actions)
                     messages.append(
                         {
                             "role": "user",
                             "content": (
                                 f"A human operator took control and made changes, then handed control "
-                                f"back. What they did: {record.human_note}\n\n"
+                                f"back. What they did: {record.human_note}{captured_summary}\n\n"
                                 f"{executor.refresh_snapshot().to_prompt_text()}"
                             ),
                         }
@@ -157,13 +192,14 @@ def run_discovery(
                         ),
                         gesture,
                     )
+                    captured_summary = _record_captured_actions(executor, record.captured_actions)
                     messages.append(
                         {
                             "role": "user",
                             "content": (
                                 f"A human operator took control directly in the browser and made changes, "
                                 f"then clicked Resume Automation. What they said they did: "
-                                f"{record.human_note}\n\n{executor.refresh_snapshot().to_prompt_text()}"
+                                f"{record.human_note}{captured_summary}\n\n{executor.refresh_snapshot().to_prompt_text()}"
                             ),
                         }
                     )
@@ -211,12 +247,18 @@ def run_discovery(
 
                 if name == "give_up":
                     reason = args.get("reason", "no reason given")
+                    # Structured intervention context (requirement A): not just "stuck",
+                    # but the goal, the reason in the agent's own words, and the exact
+                    # page-state text it was reasoning over when it decided to escalate —
+                    # the same thing a human debugging "why did it think it was stuck"
+                    # would want, and richer than a screenshot alone.
                     record = handoff.escalate(
                         InterventionRequest(
                             reason="stuck",
                             goal_or_capability=goal,
                             message=f"Agent reported being stuck: {reason}",
                             step_index=step_n,
+                            context_snapshot=executor.current_snapshot.to_prompt_text(),
                         )
                     )
                     if not record.resume:
@@ -226,17 +268,21 @@ def run_discovery(
                         # agent to re-escalate the same conclusion every turn until max_steps,
                         # burning the full step budget on repeated API calls for nothing new.
                         # Caught for real during a discovery run before this check existed.
+                        _record_captured_actions(executor, record.captured_actions)
                         outcome, summary = "give_up", f"{reason} (human confirmed: {record.human_note})"
                         result_blocks.insert(
                             0, {"type": "tool_result", "tool_use_id": primary.id, "content": json.dumps({"ok": True, "final": True})}
                         )
                         messages.append({"role": "user", "content": result_blocks})
                         break
-                    # human fixed something recoverable — give the note back and let it try again
+                    # human fixed something recoverable — record what they did as real,
+                    # replayable steps (requirement C/D), then give the agent the resulting
+                    # state and let it continue from there (requirement E).
+                    captured_summary = _record_captured_actions(executor, record.captured_actions)
                     result = {
                         "ok": True,
                         "human_intervened": True,
-                        "human_note": record.human_note,
+                        "human_note": record.human_note + captured_summary,
                         "snapshot": executor.refresh_snapshot().to_prompt_text(),
                     }
                 else:

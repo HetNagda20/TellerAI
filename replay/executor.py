@@ -1,6 +1,6 @@
 """Deterministic replay: the production execution path. No LLM in the loop —
 every action comes straight from the artifact's recorded steps and the
-caller's input params.
+caller's input params, and nothing here is allowed to change that.
 
 Before each step, the engine checks the artifact's declared
 recoverable_conditions and business_outcomes against the *current* page
@@ -13,9 +13,27 @@ parts of the artifact rather than ad hoc code):
   2. A matching business outcome ends the run immediately as `business_outcome`
      — a legitimate result, not a crash.
   3. Otherwise the step's own target is resolved via the ranked locator
-     fallback chain and executed. Any resolution/action error that survives
-     all fallbacks becomes a structured `hard_failure` naming the step,
-     what was expected, and what was actually observed.
+     fallback chain and executed, with one further bounded distinction inside
+     _run_step: a Playwright *timeout* (the page/app being transiently slow —
+     "environment failure", requirement 4) gets up to _TRANSIENT_RETRY_ATTEMPTS
+     attempts with a short wait between; a locator that never resolves at all
+     (requirement 5 — the artifact's recorded targets don't match this page)
+     does not retry, because trying the same exhausted candidates again isn't
+     going to find a different answer. Either way, whatever survives becomes a
+     structured `hard_failure` naming the step, what was expected, and what
+     was actually observed — never a reason to call the LLM.
+
+Replay HITL boundary (requirement 6), stated plainly: `escalate_on_failure`
+notifies a human and, if they report having fixed something operational (a
+stuck dialog, a slow backend), allows exactly one bounded retry of the
+*same* recorded step — never a different one, never open-ended. It is not
+discovery. No GestureController is ever constructed here, so there is no
+structured action capture on this path at all (see handoff/session.py's
+DISCOVERY_HITL_REASONS — 'replay_hard_failure' is deliberately excluded, and
+HandoffSession enforces that by dropping any captured_actions regardless).
+A replay run can end in success, business_outcome, or hard_failure; it can
+never come out the other side with a changed artifact. Teaching a capability
+a new procedure is what discovery is for.
 """
 
 from __future__ import annotations
@@ -28,6 +46,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from artifact.schema import (
     ActionType,
@@ -44,6 +63,10 @@ from replay.locators import ResolutionError, resolve_frame_chain, resolve_target
 from replay.outcomes import FailureDetail, ReplayResult, StrategyLogEntry
 
 EVIDENCE_ROOT = Path(__file__).resolve().parent.parent / "evidence"
+_TRANSIENT_RETRY_ATTEMPTS = 2  # total attempts on a Playwright timeout, i.e. one retry
+_TRANSIENT_RETRY_WAIT_MS = 500
+_ACTION_TIMEOUT_MS = 5000  # per-attempt Playwright actionability timeout; module-level so
+                           # tests can shorten it rather than waiting out a real 5s timeout
 
 
 def _fmt(value: Optional[str], params: dict[str, str]) -> Optional[str]:
@@ -181,7 +204,7 @@ def replay_artifact(
 
                 if not outcome.ok:
                     if escalate_on_failure and handoff is not None:
-                        handoff.escalate(
+                        record = handoff.escalate(
                             InterventionRequest(
                                 reason="replay_hard_failure",
                                 goal_or_capability=artifact.capability_id,
@@ -189,6 +212,23 @@ def replay_artifact(
                                 step_index=step.index,
                             )
                         )
+                        # Bounded operational recovery ONLY (requirement 6) — the human
+                        # reported having fixed something in the environment (an
+                        # unexpected system dialog, a slow backend), so the *same*
+                        # recorded step gets exactly one more attempt. This is never a
+                        # do-over of the whole artifact and never a second retry if this
+                        # also fails: record.resume was previously read and discarded
+                        # entirely, silently turning every escalation into a notification
+                        # with no actual recovery effect — fixed here, not by adding a
+                        # new mechanism. Whatever the human did (if anything) is not
+                        # captured as a step: HandoffSession.escalate() already drops
+                        # captured_actions for 'replay_hard_failure' unconditionally
+                        # (see DISCOVERY_HITL_REASONS) — replay cannot teach the artifact,
+                        # by construction, not by this call site remembering to behave.
+                        if record.resume:
+                            outcome = _run_step(page, step, params, allowlist, strategy_log, recovered_name)
+
+                if not outcome.ok:
                     failure = FailureDetail(
                         step_index=step.index,
                         action=step.action.value,
@@ -273,6 +313,35 @@ def replay_artifact(
 
 
 def _run_step(page, step, params, allowlist: Allowlist, strategy_log: list[StrategyLogEntry], recovered_name) -> _StepOutcome:
+    """Bounded retry for transient environment failures (requirement 4) —
+    a Playwright timeout (page/app slow, not permanently broken) gets up to
+    _TRANSIENT_RETRY_ATTEMPTS total tries with a short wait between. A
+    ResolutionError (requirement 5 — the artifact's target genuinely doesn't
+    match this page) is NOT retried here: _run_step_once already exhausts
+    every ranked locator candidate in one call, so calling it again with the
+    same artifact and the same page would just fail the same way. Retrying
+    that would look like recovery but isn't — it'd just be burning time
+    before reporting the same structural mismatch.
+    """
+    last: Optional[_StepOutcome] = None
+    for attempt in range(1, _TRANSIENT_RETRY_ATTEMPTS + 1):
+        try:
+            return _run_step_once(page, step, params, allowlist, strategy_log, recovered_name)
+        except PlaywrightTimeoutError as e:
+            last = _StepOutcome(
+                False,
+                expected=f"{step.action.value} to complete",
+                observed=str(e),
+                message=f"Transient timeout on attempt {attempt}/{_TRANSIENT_RETRY_ATTEMPTS}.",
+            )
+            if attempt < _TRANSIENT_RETRY_ATTEMPTS:
+                page.wait_for_timeout(_TRANSIENT_RETRY_WAIT_MS)
+    assert last is not None
+    last.message = f"Exhausted {_TRANSIENT_RETRY_ATTEMPTS} attempts after repeated transient timeouts. " + last.message
+    return last
+
+
+def _run_step_once(page, step, params, allowlist: Allowlist, strategy_log: list[StrategyLogEntry], recovered_name) -> _StepOutcome:
     try:
         if step.action == ActionType.NAVIGATE:
             url = _fmt(step.value_template, params)
@@ -293,28 +362,28 @@ def _run_step(page, step, params, allowlist: Allowlist, strategy_log: list[Strat
 
         if step.action == ActionType.CLICK:
             if resolved.locator is not None:
-                resolved.locator.click(timeout=5000)
+                resolved.locator.click(timeout=_ACTION_TIMEOUT_MS)
             else:
                 page.mouse.click(resolved.coordinates["x"], resolved.coordinates["y"])
-            page.wait_for_load_state("domcontentloaded", timeout=5000)
+            page.wait_for_load_state("domcontentloaded", timeout=_ACTION_TIMEOUT_MS)
             return _StepOutcome(True)
 
         if step.action == ActionType.FILL:
             value = _fmt(step.value_template, params) or ""
             if resolved.locator is None:
                 return _StepOutcome(False, expected="fillable element", observed="coordinates-only match", message="Cannot fill via coordinates.")
-            resolved.locator.fill(value, timeout=5000)
+            resolved.locator.fill(value, timeout=_ACTION_TIMEOUT_MS)
             return _StepOutcome(True)
 
         if step.action == ActionType.SELECT:
             value = _fmt(step.value_template, params) or ""
             if resolved.locator is None:
                 return _StepOutcome(False, expected="selectable element", observed="coordinates-only match", message="Cannot select via coordinates.")
-            resolved.locator.select_option(value, timeout=5000)
+            resolved.locator.select_option(value, timeout=_ACTION_TIMEOUT_MS)
             return _StepOutcome(True)
 
         if step.action == ActionType.READ_TEXT:
-            text = resolved.locator.inner_text(timeout=5000) if resolved.locator is not None else ""
+            text = resolved.locator.inner_text(timeout=_ACTION_TIMEOUT_MS) if resolved.locator is not None else ""
             out = _StepOutcome(True)
             out.observed = text
             return out
@@ -323,7 +392,13 @@ def _run_step(page, step, params, allowlist: Allowlist, strategy_log: list[Strat
 
     except ResolutionError as e:
         return _StepOutcome(False, expected=f"one of the recorded locator candidates for step {step.index}", observed=str(e), message="No locator candidate resolved.")
-    except Exception as e:  # noqa: BLE001 - any Playwright timeout/navigation error becomes a structured hard failure
+    except PlaywrightTimeoutError:
+        # Deliberately NOT caught-and-converted here — let it propagate to _run_step,
+        # which decides whether a bounded retry is warranted (requirement 4). Catching
+        # it here would turn every timeout into an immediate hard_failure with no
+        # chance for the "just slow, not broken" case to recover.
+        raise
+    except Exception as e:  # noqa: BLE001 - any other Playwright/navigation error becomes a structured hard failure
         return _StepOutcome(False, expected=f"{step.action.value} to succeed", observed=str(e), message="Unhandled runtime error during step execution.")
 
 

@@ -118,6 +118,17 @@ class Step(BaseModel):
         default="safe",
         description="Guardrail classification for this individual action (see guardrails/policy.py).",
     )
+    source: Literal["llm", "human_intervention"] = Field(
+        default="llm",
+        description=(
+            "Who discovered this step. 'llm' for a normal tool call the discovery agent made "
+            "itself; 'human_intervention' for a step captured while a human had control of the "
+            "live session (see handoff/gesture.py's action capture and agent/loop.py's give_up "
+            "handling). Both are represented and replayed identically — this is provenance for "
+            "review, not a different execution path. A human-taught step still carries the same "
+            "ranked Target candidates a discovered step does, built the same way."
+        ),
+    )
 
 
 class ParamType(str, Enum):

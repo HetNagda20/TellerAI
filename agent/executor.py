@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from playwright.sync_api import Page
 
-from agent.perception import Snapshot, resolve_locator, snapshot as take_snapshot
+from agent.perception import PerceivedElement, Snapshot, resolve_locator, snapshot as take_snapshot
 from artifact.schema import Target
 from guardrails.allowlist import Allowlist
 from guardrails.policy import classify_action
@@ -41,6 +41,11 @@ class StepLog:
     ok: bool = True
     error: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    source: str = "llm"
+    """'llm' (default, a normal tool call) or 'human_intervention' (captured while a
+    human had control — see Executor.record_human_action). Threaded through by
+    artifact/recorder.py into Step.source unchanged; this is the single place both
+    kinds of step live, so the recorder doesn't need two code paths."""
 
 
 class DeadEnd(Exception):
@@ -71,7 +76,18 @@ class Executor:
     def _dispatch(self, fn):
         """Runs one real Playwright action, bracketed so gesture detection can tell
         'we did this' apart from a human doing something else on the page.
+
+        Also where LLM_CONTROL is actually enforced, not just narrated. Every
+        Executor method that touches the page funnels through here, so this is
+        the one place that needs the check — an LLM-driven action dispatched
+        while a human formally has control (HandoffSession.state) is a real bug,
+        not something to fail into silently.
         """
+        if not self.handoff.is_agent_allowed():
+            raise RuntimeError(
+                f"Refusing to dispatch an LLM-driven action while session state is "
+                f"{self.handoff.state.value!r} — control has not been handed back yet."
+            )
         if self._gesture is None:
             return fn()
         self._gesture.mark_active(True)
@@ -185,6 +201,54 @@ class Executor:
         if log.ok:
             result["snapshot"] = self.current_snapshot.to_prompt_text()
         return result
+
+    def record_human_action(self, action: str, descriptor: dict, value: Optional[str], url: str) -> StepLog:
+        """Turns one captured human interaction (handoff/gesture.py's action-capture
+        listener) into a StepLog with `source="human_intervention"`, using the exact
+        same Target-building path a normal LLM-driven step uses.
+
+        `descriptor` is the {role, name, name_source, css, bbox, options} dict the
+        capture listener computed client-side, synchronously, at the moment of the
+        click/change — see handoff/gesture.py for why that can't wait for a Python
+        round-trip first. Building a PerceivedElement from it and calling
+        .to_target() reuses agent.perception's locator-candidate logic verbatim,
+        so a human-taught step gets the identical ranked-fallback Target an
+        LLM-discovered step would, not a second, weaker representation.
+
+        Not called through _dispatch(): nothing is being dispatched here — the
+        human already performed this action directly; this only records it.
+        """
+        el = PerceivedElement(
+            ref="human",
+            frame_index=0,  # main-frame only, see handoff/gesture.py's documented scope
+            role=descriptor["role"],
+            name=descriptor["name"],
+            name_source=descriptor["name_source"],
+            tag="",
+            input_type="",
+            css=descriptor["css"],
+            bbox=descriptor["bbox"],
+            interactive=True,
+            options=descriptor.get("options"),
+        )
+        risk = classify_action(action, el.name, True)
+        log = StepLog(
+            index=len(self.steps),
+            action=action,
+            rationale="Captured from a human operator's action during intervention.",
+            element_role=el.role,
+            element_name=el.name,
+            value=redact_value(el.name, value) if value is not None else None,
+            value_field_name=el.name if value is not None else None,
+            target=el.to_target(),
+            url_before=url,
+            url_after=url,
+            risk=risk,
+            ok=True,
+            source="human_intervention",
+        )
+        self.steps.append(log)
+        return log
 
     def click(self, ref: str, rationale: str) -> dict[str, Any]:
         return self._act_on_ref("click", ref, rationale)

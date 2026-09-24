@@ -25,6 +25,14 @@ being able to control account type on replay. Same idea for outputs: the
 model's `done` call echoed several input values back as "outputs" with
 nothing that actually read them off the page; keeping those in the schema
 would promise a caller data replay can't reproduce.
+
+A step's `source` ("llm" or "human_intervention", see StepLog/Step) passes
+through unchanged below — this recorder has no separate code path for
+human-taught steps. They arrive in `result.steps` shaped identically to any
+LLM-driven step (same Target-building, same ok/risk/value fields — see
+agent/executor.py's record_human_action), at whatever position in the
+sequence they actually happened, so ordering, templating, and output-
+matching all just work without knowing or caring who performed the step.
 """
 
 from __future__ import annotations
@@ -102,6 +110,7 @@ def record_artifact(
                 target=s.target,
                 extract_as=match,
                 risk=s.risk,
+                source=s.source,
             )
             output_fields.append(
                 OutputField(name=match, type=_infer_type(raw_outputs[match]), description=f"Value read for {match}.", source_step=step.index)
@@ -117,6 +126,7 @@ def record_artifact(
                     description=s.rationale,
                     value_template=_templatize(s.url_after or s.url_before, declared_params),
                     risk=s.risk,
+                    source=s.source,
                 )
             )
             continue
@@ -133,6 +143,7 @@ def record_artifact(
                     target=s.target,
                     value_template=value_template,
                     risk=s.risk,
+                    source=s.source,
                 )
             )
 

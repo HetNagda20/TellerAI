@@ -117,6 +117,134 @@ _SHOW_CONFIRM_JS = r"""
 
 _HIDE_CONFIRM_JS = "document.getElementById('__pw_confirm_banner')?.remove();"
 
+# Structured capture of what a human actually does while they have control —
+# not a free-text note, a replayable action (see agent/executor.py's
+# record_human_action and artifact/schema.py's Step.source). Armed only
+# during a human-control window (start_capturing/stop_capturing below).
+#
+# The accessibleName/roleOf/cssPath functions here duplicate
+# agent/perception.py's _SNAPSHOT_JS almost verbatim. That's deliberate, not
+# an oversight: a captured action's full descriptor (role, name, css path)
+# must be computed SYNCHRONOUSLY inside the same click/change event-handler
+# tick that might immediately trigger a navigation (e.g. a link). Reporting
+# back to Python first — say, to re-run a page-wide snapshot and match the
+# clicked element by selector — races that navigation and can lose the
+# element before Python ever looks for it, since expose_function calls made
+# from an event handler don't block the page's own subsequent event handling
+# or default action. Computing the descriptor client-side, before anything
+# else can run, avoids the race outright. See perception.py if the two ever
+# need to diverge; for now keeping them in lockstep is a manual step, not an
+# enforced one — a real cost of not sharing this properly, worth knowing.
+_CAPTURE_INIT_JS = r"""
+(() => {
+  if (window.__pwCaptureInstalled) return;
+  window.__pwCaptureInstalled = true;
+  window.__pwCapturing = false;
+
+  function accessibleName(el) {
+    const aria = el.getAttribute('aria-label');
+    if (aria && aria.trim()) return { name: aria.trim(), source: 'aria' };
+    if (el.id) {
+      const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (lbl && lbl.innerText.trim()) return { name: lbl.innerText.trim(), source: 'label' };
+    }
+    const wrapping = el.closest('label');
+    if (wrapping && wrapping.innerText.trim()) return { name: wrapping.innerText.trim(), source: 'label' };
+    const placeholder = el.getAttribute('placeholder');
+    if (placeholder && placeholder.trim()) return { name: placeholder.trim(), source: 'placeholder' };
+    if ('value' in el && el.tagName !== 'SELECT' && el.value && el.value.trim()) {
+      return { name: el.value.trim(), source: 'value' };
+    }
+    const text = (el.innerText || '').trim();
+    if (text) return { name: text.slice(0, 80), source: 'own_text' };
+    const row = el.closest('tr');
+    if (row) {
+      const cell = el.closest('td');
+      const cells = Array.from(row.cells || []);
+      const cellIdx = cell ? cells.indexOf(cell) : -1;
+      if (cellIdx > 0) {
+        const labelText = (cells[cellIdx - 1].innerText || '').trim();
+        if (labelText) return { name: labelText.slice(0, 80), source: 'inferred_label' };
+      }
+    }
+    return { name: '', source: 'none' };
+  }
+
+  function roleOf(el) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+    if (tag === 'button') return 'button';
+    if (tag === 'input' && (type === 'submit' || type === 'button')) return 'button';
+    if (tag === 'input' && type === 'checkbox') return 'checkbox';
+    if (tag === 'input' && type === 'radio') return 'radio';
+    if (tag === 'input' && (type === '' || type === 'text' || type === 'password' || type === 'email' || type === 'number')) return 'textbox';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'select') return 'combobox';
+    return null;
+  }
+
+  function cssPath(el) {
+    const parts = [];
+    let node = el;
+    for (let depth = 0; node && node.nodeType === 1 && depth < 5; depth++) {
+      let part = node.tagName.toLowerCase();
+      const parent = node.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(c => c.tagName === node.tagName);
+        if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+      }
+      parts.unshift(part);
+      node = parent;
+    }
+    return parts.join(' > ');
+  }
+
+  function describeElement(el) {
+    const role = roleOf(el);
+    if (!role) return null;
+    const r = el.getBoundingClientRect();
+    const { name, source } = accessibleName(el);
+    return {
+      role, name, name_source: source,
+      css: cssPath(el),
+      bbox: { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) },
+      options: el.tagName === 'SELECT'
+        ? Array.from(el.options).map(o => ({ value: o.value, label: o.text.trim() }))
+        : null,
+    };
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!window.__pwCapturing) return;
+    if (e.target && e.target.closest && e.target.closest('.__pw_ui')) return;
+    const el = e.target.closest(
+      'a[href], button, input[type=submit], input[type=button], input[type=checkbox], input[type=radio]'
+    );
+    if (!el) return;
+    const desc = describeElement(el);
+    if (desc && window.__pwActionCaptured) window.__pwActionCaptured('click', desc, null);
+  }, true);
+
+  document.addEventListener('change', (e) => {
+    if (!window.__pwCapturing) return;
+    const el = e.target;
+    if (el.closest && el.closest('.__pw_ui')) return;
+    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+    if (tag === 'select') {
+      const desc = describeElement(el);
+      if (desc && window.__pwActionCaptured) window.__pwActionCaptured('select', desc, el.value);
+    } else if (tag === 'input' || tag === 'textarea') {
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      if (tag === 'textarea' || ['text', 'password', 'email', 'number', ''].includes(type)) {
+        const desc = describeElement(el);
+        if (desc && window.__pwActionCaptured) window.__pwActionCaptured('fill', desc, el.value);
+      }
+    }
+  }, true);
+})();
+"""
+
 
 class GestureController:
     """One per live page. Exposes the JS<->Python bridge once; callbacks are
@@ -128,12 +256,17 @@ class GestureController:
         self._on_human_signal: Optional[Callable[[], None]] = None
         self._resume_note: Optional[str] = None
         self._confirm_result: Optional[bool] = None
+        self._captured_actions: list[dict] = []
         page.add_init_script(_INIT_SCRIPT)
+        page.add_init_script(_CAPTURE_INIT_JS)
         page.expose_function("__pwHumanSignal", self._handle_human_signal)
         page.expose_function("__pwResumeSignal", self._handle_resume)
         page.expose_function("__pwConfirmSignal", self._handle_confirm)
+        page.expose_function("__pwActionCaptured", self._handle_action_captured)
         try:
-            page.evaluate(_INIT_SCRIPT)  # cover the page already loaded before add_init_script applies
+            # cover the page already loaded before add_init_script applies to future navigations
+            page.evaluate(_INIT_SCRIPT)
+            page.evaluate(_CAPTURE_INIT_JS)
         except Exception:
             pass
 
@@ -147,11 +280,36 @@ class GestureController:
     def _handle_confirm(self, approved: bool) -> None:
         self._confirm_result = approved
 
+    def _handle_action_captured(self, action: str, descriptor: dict, value: Optional[str]) -> None:
+        self._captured_actions.append({"action": action, "descriptor": descriptor, "value": value})
+
     def arm_human_detection(self, callback: Callable[[], None]) -> None:
         self._on_human_signal = callback
 
     def disarm_human_detection(self) -> None:
         self._on_human_signal = None
+
+    def start_capturing(self) -> None:
+        """Begins recording structured click/select/fill descriptors from the live
+        page. Pair with stop_capturing() to bracket exactly the human-control window
+        — nothing captured before this or after stop_capturing() is called.
+        """
+        self._captured_actions = []
+        try:
+            self.page.evaluate("window.__pwCapturing = true")
+        except Exception:
+            pass
+
+    def stop_capturing(self) -> list[dict]:
+        """Stops recording and returns everything captured since start_capturing(),
+        in the order it happened. Each entry: {action, descriptor, value}.
+        """
+        try:
+            self.page.evaluate("window.__pwCapturing = false")
+        except Exception:
+            pass
+        actions, self._captured_actions = self._captured_actions, []
+        return actions
 
     def mark_active(self, active: bool) -> None:
         """Call around every action the executor itself dispatches, so the
@@ -176,20 +334,37 @@ class GestureController:
         except Exception:
             pass  # mid-navigation; the init script reinstalls with __pwActive=false regardless
 
-    def pause_and_wait_for_resume(self, poll_interval_s: float = 0.25, timeout_s: float = 3600) -> str:
-        """Shows the on-page banner, blocks until the human clicks Resume (or
-        timeout), and returns their optional note.
+    def show_pause_banner(self) -> None:
+        """Shows the Resume Automation banner without blocking — pairs with
+        poll_resume_result() so a caller can race this against another channel
+        (e.g. the CLI prompt in _CliOperator.take_control) instead of committing
+        to wait here only.
         """
         self._resume_note = None
         self.page.evaluate(_SHOW_BANNER_JS)
-        deadline = time.monotonic() + timeout_s
-        while self._resume_note is None and time.monotonic() < deadline:
-            self.page.wait_for_timeout(int(poll_interval_s * 1000))  # pumps Playwright's event loop
+
+    def poll_resume_result(self) -> Optional[str]:
+        """None until Resume Automation is clicked; call repeatedly from a poll loop."""
+        return self._resume_note
+
+    def hide_pause_banner(self) -> None:
         try:
             self.page.evaluate(_HIDE_BANNER_JS)
         except Exception:
             pass
-        return self._resume_note or "(timed out waiting for resume)"
+
+    def pause_and_wait_for_resume(self, poll_interval_s: float = 0.25, timeout_s: float = 3600) -> str:
+        """Shows the on-page banner, blocks until the human clicks Resume (or
+        timeout), and returns their optional note. For callers with no other
+        channel to race against (see _CliOperator.take_control for the version
+        that does).
+        """
+        self.show_pause_banner()
+        deadline = time.monotonic() + timeout_s
+        while self.poll_resume_result() is None and time.monotonic() < deadline:
+            self.page.wait_for_timeout(int(poll_interval_s * 1000))  # pumps Playwright's event loop
+        self.hide_pause_banner()
+        return self.poll_resume_result() or "(timed out waiting for resume)"
 
     def show_confirm_banner(self, message: str) -> None:
         """Shows the Approve/Deny banner without blocking — pairs with

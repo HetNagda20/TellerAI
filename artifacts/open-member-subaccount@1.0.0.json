@@ -2,8 +2,8 @@
   "capability_id": "open-member-subaccount",
   "version": "1.0.0",
   "status": "draft",
-  "description": "Opens a new sub-account for an existing member, funded from a specified source account, and reaches the confirmation screen.",
-  "goal_template": "Open a new savings sub-account for member 20001 with a  deposit, funded from checking, and reach the confirmation screen.",
+  "description": "Opens a new sub-account for an existing member and reaches the confirmation screen.",
+  "goal_template": "Open a new savings sub-account for member 10001 with a  initial deposit and reach the confirmation screen.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
@@ -16,21 +16,14 @@
       "type": "number",
       "required": true,
       "description": "Value for member_id.",
-      "example": "20001"
-    },
-    {
-      "name": "initial_deposit",
-      "type": "number",
-      "required": true,
-      "description": "Value for initial_deposit.",
-      "example": "80"
+      "example": "10001"
     }
   ],
   "outputs": [
     {
-      "name": "new_subaccount_id",
+      "name": "sub_account_id",
       "type": "string",
-      "description": "Value read for new_subaccount_id.",
+      "description": "Value read for sub_account_id.",
       "source_step": 11
     }
   ],
@@ -40,15 +33,16 @@
       "action": "navigate",
       "description": "Start at the target entry point.",
       "target": null,
-      "value_template": "http://127.0.0.1:{initial_deposit}00/",
+      "value_template": "http://127.0.0.1:8000/",
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
       "index": 1,
       "action": "click",
-      "description": "Navigate to Accounts section to open a new sub-account",
+      "description": "Navigate to Accounts section to find option to open new sub-account",
       "target": {
         "candidates": [
           {
@@ -87,12 +81,13 @@
       "value_template": null,
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
       "index": 2,
       "action": "fill",
-      "description": "Enter member ID to search for account",
+      "description": "Enter member ID to look up their account",
       "target": {
         "candidates": [
           {
@@ -131,12 +126,13 @@
       "value_template": "{member_id}",
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
       "index": 3,
       "action": "click",
-      "description": "Search for member 20001",
+      "description": "Search for member 10001",
       "target": {
         "candidates": [
           {
@@ -175,12 +171,13 @@
       "value_template": null,
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
       "index": 4,
       "action": "click",
-      "description": "Proceed to open a new sub-account for the member as originally planned.",
+      "description": "Open the new sub-account form for this member",
       "target": {
         "candidates": [
           {
@@ -209,7 +206,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 154,
-              "y": 509
+              "y": 1027
             },
             "observed_at_record_time": false
           }
@@ -219,56 +216,13 @@
       "value_template": null,
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
       "index": 5,
-      "action": "click",
-      "description": "Continue past session renewal notice to reach the new sub-account form.",
-      "target": {
-        "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "button",
-              "name": "Continue"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Continue"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "css_path",
-            "value": {
-              "css": "tbody > tr > td > form > input:nth-of-type(2)"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "coordinates",
-            "value": {
-              "x": 54,
-              "y": 155
-            },
-            "observed_at_record_time": false
-          }
-        ],
-        "frame_chain": []
-      },
-      "value_template": null,
-      "extract_as": null,
-      "checkpoint": null,
-      "risk": "safe"
-    },
-    {
-      "index": 6,
       "action": "select",
-      "description": "Select account type as Savings for the new sub-account.",
+      "description": "Ensure account type is set to Savings",
       "target": {
         "candidates": [
           {
@@ -307,12 +261,13 @@
       "value_template": "Savings",
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
-      "index": 7,
+      "index": 6,
       "action": "fill",
-      "description": "Enter the initial deposit amount, since goal specifies a deposit but no explicit value was given; using $100 as a reasonable default consistent with existing sub-accounts.",
+      "description": "Enter initial deposit amount; the task specifies an unspecified amount, defaulting to $0 initial deposit",
       "target": {
         "candidates": [
           {
@@ -333,59 +288,16 @@
         ],
         "frame_chain": []
       },
-      "value_template": "100",
+      "value_template": "0",
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     },
     {
-      "index": 8,
-      "action": "select",
-      "description": "Set funding source to checking as specified by the goal.",
-      "target": {
-        "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "combobox",
-              "name": "Cash Deposit\nTransfer from Checking\nTransfer from Savings"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Cash Deposit\nTransfer from Checking\nTransfer from Savings"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "css_path",
-            "value": {
-              "css": "table > tbody > tr:nth-of-type(3) > td:nth-of-type(2) > select"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "coordinates",
-            "value": {
-              "x": 222,
-              "y": 168
-            },
-            "observed_at_record_time": false
-          }
-        ],
-        "frame_chain": []
-      },
-      "value_template": "Transfer from Checking",
-      "extract_as": null,
-      "checkpoint": null,
-      "risk": "safe"
-    },
-    {
-      "index": 9,
+      "index": 7,
       "action": "click",
-      "description": "Proceed to review step with the entered form data.",
+      "description": "Proceed to review step with the entered data",
       "target": {
         "candidates": [
           {
@@ -424,12 +336,88 @@
       "value_template": null,
       "extract_as": null,
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 8,
+      "action": "fill",
+      "description": "Set initial deposit to minimum required $25.00",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(2) > td:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 181,
+              "y": 166
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "25",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 9,
+      "action": "click",
+      "description": "Submit the form with valid deposit amount",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Review"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Review"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(4) > td > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 48,
+              "y": 215
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
     },
     {
       "index": 10,
       "action": "click",
-      "description": "Confirm and open the new savings sub-account to reach confirmation screen.",
+      "description": "Confirm and open the new savings sub-account",
       "target": {
         "candidates": [
           {
@@ -468,26 +456,27 @@
       "value_template": null,
       "extract_as": null,
       "checkpoint": null,
-      "risk": "confirm"
+      "risk": "confirm",
+      "source": "llm"
     },
     {
       "index": 11,
       "action": "read_text",
-      "description": "Read the new sub-account ID from the confirmation screen for reporting.",
+      "description": "Read the new sub-account ID from the confirmation screen",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "text",
-              "name": "SA-5007"
+              "name": "SA-5035"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "SA-5007"
+              "text": "SA-5035"
             },
             "observed_at_record_time": false
           },
@@ -510,9 +499,10 @@
         "frame_chain": []
       },
       "value_template": null,
-      "extract_as": "new_subaccount_id",
+      "extract_as": "sub_account_id",
       "checkpoint": null,
-      "risk": "safe"
+      "risk": "safe",
+      "source": "llm"
     }
   ],
   "final_checkpoint": {
@@ -585,6 +575,6 @@
     }
   ],
   "overall_risk": "confirm",
-  "created_from_run_id": "discovery_20260923T230037Z",
-  "created_at": "2026-09-23T23:01:09.213769Z"
+  "created_from_run_id": "discovery_20260924T221354Z",
+  "created_at": "2026-09-24T22:14:27.700602Z"
 }

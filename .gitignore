@@ -9,3 +9,4 @@ node_modules/
 .pytest_cache/
 *.log
 teller.db
+.claude/
