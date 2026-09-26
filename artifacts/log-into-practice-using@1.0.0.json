@@ -1,0 +1,345 @@
+{
+  "capability_id": "log-into-practice-using",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "Auto-recorded from Task AI goal: Log into the practice account using the demo credentials displayed on the page and reach the successful login state.",
+  "goal_template": "Log into the practice account using the demo credentials displayed on the page and reach the successful login state.",
+  "target_app": {
+    "app_id": "cu-servicing-console",
+    "tenant_id": null,
+    "base_url": "https://www.qapractice.com/practice-login-form",
+    "entry_path": "/"
+  },
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "login_status_message",
+      "type": "string",
+      "description": "Value read for login_status_message.",
+      "source_step": 7
+    }
+  ],
+  "steps": [
+    {
+      "index": 0,
+      "action": "navigate",
+      "description": "Start at the target entry point.",
+      "target": null,
+      "value_template": "https://www.qapractice.com/practice-login-form",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 1,
+      "action": "click",
+      "description": "Expand the working automation example section which likely shows demo credentials.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "📝 Working Automation Example\n▼"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "📝 Working Automation Example\n▼"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "body > div > div:nth-of-type(3) > div:nth-of-type(2) > button"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 640,
+              "y": 1432
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 2,
+      "action": "click",
+      "description": "Click Playwright tab to reveal example code with demo credentials.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "🎭 Playwright"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "🎭 Playwright"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "div > div > ul > li:nth-of-type(1) > button"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 171,
+              "y": 471
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 3,
+      "action": "click",
+      "description": "Expand Test Cases & Expected Behaviors section, which likely contains demo credentials.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "✅ Test Cases & Expected Behaviors\n▼"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "✅ Test Cases & Expected Behaviors\n▼"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "body > div > div:nth-of-type(3) > div:nth-of-type(4) > button"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 640,
+              "y": 1378
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 4,
+      "action": "fill",
+      "description": "Enter the demo email credential shown in test cases.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "textbox",
+              "name": "Enter your email"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Enter your email"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "div > div > form > div:nth-of-type(1) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 640,
+              "y": -1225
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "user@premiumbank.com",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 5,
+      "action": "fill",
+      "description": "Enter the demo password credential shown in test cases.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "div > div > form > div:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 640,
+              "y": -572
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "[REDACTED]",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 6,
+      "action": "click",
+      "description": "Click Sign in to submit the login form with the demo credentials.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Sign in"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Sign in"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "div > div > div > form > button"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 640,
+              "y": 255
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 7,
+      "action": "read_text",
+      "description": "Read the success message to confirm login was successful.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "text",
+              "name": "Login Successful! Welcome to Premium Banking."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Login Successful! Welcome to Premium Banking."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "div:nth-of-type(1) > div > div > div > div:nth-of-type(3)"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 640,
+              "y": 252
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": "login_status_message",
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    }
+  ],
+  "final_checkpoint": {
+    "kind": "url_contains",
+    "value": "/practice-login-form",
+    "target": null
+  },
+  "business_outcomes": [],
+  "recoverable_conditions": [],
+  "overall_risk": "safe",
+  "created_from_run_id": "discovery_20260926T002142Z",
+  "created_at": "2026-09-26T00:22:00.067518Z"
+}

@@ -293,6 +293,57 @@ def test_replay_module_never_imports_llm_machinery():
         assert forbidden not in source, f"replay/executor.py must never reference {forbidden!r}"
 
 
+# -- input-param contract: replay must reject what it can't honor -------------
+#
+# Regression coverage for a real bug: replaying open-member-subaccount@1.0.0
+# with --param initial_deposit=100 silently accepted and ignored that param
+# (the artifact never declared it, and no step ever templated it in), so the
+# deposit box was always filled with a hardcoded literal regardless of what
+# was passed. The CLI looked like it rejected $100 as an invalid amount; it
+# had actually never submitted $100 at all. See PROJECT_STATE.md. Both checks
+# below run before run_id/evidence_dir/browser setup in replay_artifact(), so
+# these need no mock app and no Playwright browser.
+
+
+def _param_contract_artifact(inputs: list[InputParam]) -> Artifact:
+    return Artifact(
+        capability_id="param-contract-demo",
+        version="1.0.0",
+        description="Minimal artifact for input-param contract tests.",
+        goal_template="n/a",
+        target_app=TargetApp(app_id="cu-servicing-console", base_url=BASE, entry_path="/"),
+        inputs=inputs,
+        outputs=[],
+        steps=[],
+        final_checkpoint=Checkpoint(kind=CheckpointKind.URL_CONTAINS, value="/"),
+        created_from_run_id="hand_built_for_tests",
+    )
+
+
+def test_replay_rejects_missing_required_param():
+    artifact = _param_contract_artifact([InputParam(name="member_id", type=ParamType.STRING, description="member id")])
+    with pytest.raises(ValueError, match="Missing required params"):
+        replay_artifact(artifact, {}, headless=True)
+
+
+def test_replay_rejects_unknown_param_not_declared_by_artifact():
+    artifact = _param_contract_artifact([InputParam(name="member_id", type=ParamType.STRING, description="member id")])
+    with pytest.raises(ValueError, match="Unknown params"):
+        replay_artifact(artifact, {"member_id": "10001", "initial_deposit": "100"}, headless=True)
+
+
+def test_replay_param_validation_does_not_mutate_the_artifact():
+    artifact = _param_contract_artifact([InputParam(name="member_id", type=ParamType.STRING, description="member id")])
+    before = artifact.model_dump_json()
+
+    with pytest.raises(ValueError):
+        replay_artifact(artifact, {"member_id": "10001", "bogus": "x"}, headless=True)
+    with pytest.raises(ValueError):
+        replay_artifact(artifact, {}, headless=True)
+
+    assert artifact.model_dump_json() == before
+
+
 @pytest.mark.skipif(not _mock_app_up(), reason="mock app is not running at 127.0.0.1:8000")
 def test_replay_never_mutates_the_artifact_object():
     business_outcomes, recoverable = annotations_for("open-member-subaccount")

@@ -155,8 +155,13 @@ _CAPTURE_INIT_JS = r"""
     if ('value' in el && el.tagName !== 'SELECT' && el.value && el.value.trim()) {
       return { name: el.value.trim(), source: 'value' };
     }
-    const text = (el.innerText || '').trim();
-    if (text) return { name: text.slice(0, 80), source: 'own_text' };
+    // Kept in lockstep with agent/perception.py's identical fix: a <select>'s
+    // innerText is its concatenated option list, never distinguishing between
+    // same-shaped selects -- skip it and fall through to the row-based label.
+    if (el.tagName !== 'SELECT') {
+      const text = (el.innerText || '').trim();
+      if (text) return { name: text.slice(0, 80), source: 'own_text' };
+    }
     const row = el.closest('tr');
     if (row) {
       const cell = el.closest('td');

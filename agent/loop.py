@@ -339,6 +339,24 @@ def run_discovery(
         return result
 
 
+def _redact_for_evidence(obj: Any) -> Any:
+    """Blunt, recursive text redaction for evidence -- audit-only, never
+    re-resolved, so a plain substring substitution is safe here (contrast
+    with artifact/recorder.py's _scrub_target, which must preserve
+    replayability and so drops a sensitive locator candidate rather than
+    substituting into it). Covers what StepLog-creation-time redaction
+    doesn't: rationale text and a step's raw target (e.g. a read_text step's
+    locator candidates, built from whatever text was actually on the page).
+    """
+    if isinstance(obj, str):
+        return redact_text(obj)
+    if isinstance(obj, dict):
+        return {k: _redact_for_evidence(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_for_evidence(v) for v in obj]
+    return obj
+
+
 def _write_evidence(result: DiscoveryResult) -> None:
     evidence_dir = Path(result.evidence_dir)
 
@@ -348,6 +366,7 @@ def _write_evidence(result: DiscoveryResult) -> None:
             d = asdict(s)
             if d.get("target") is not None:
                 d["target"] = json.loads(s.target.model_dump_json()) if s.target else None
+            d = _redact_for_evidence(d)
             f.write(json.dumps(d, default=str) + "\n")
 
     summary_path = evidence_dir / "run_summary.json"

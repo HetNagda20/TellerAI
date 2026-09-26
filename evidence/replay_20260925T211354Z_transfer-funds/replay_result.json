@@ -1,0 +1,64 @@
+{
+  "kind": "success",
+  "capability_id": "transfer-funds",
+  "version": "manual-op",
+  "run_id": "replay_20260925T211354Z",
+  "outputs": {
+    "confirmation_number": "TXF-7001"
+  },
+  "business_outcome_name": null,
+  "business_outcome_description": null,
+  "failure": null,
+  "steps_executed": 8,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "select",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "select",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 4,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 5,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 6,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 7,
+      "action": "read_text",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    }
+  ],
+  "evidence_dir": "/Users/hetnagda/Desktop/Project/TellerAI/evidence/replay_20260925T211354Z_transfer-funds"
+}

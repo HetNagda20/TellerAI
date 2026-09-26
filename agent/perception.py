@@ -50,8 +50,18 @@ _SNAPSHOT_JS = r"""
     if ('value' in el && el.tagName !== 'SELECT' && el.value && el.value.trim()) {
       return { name: el.value.trim(), source: 'value' };
     }
-    const text = (el.innerText || '').trim();
-    if (text) return { name: text.slice(0, 80), source: 'own_text' };
+    // A <select>'s own innerText is its concatenated option list (e.g.
+    // "Checking\nSavings") -- identical for every same-shaped select on the
+    // page, so it can never distinguish one control from another. Skip it
+    // here the same way the value branch above already does, and fall
+    // through to the row-based inferred_label branch below, which reads the
+    // *distinct* neighboring label text instead. Generic to any legacy
+    // table-layout form with more than one same-shaped dropdown, not
+    // specific to any one app's field names.
+    if (el.tagName !== 'SELECT') {
+      const text = (el.innerText || '').trim();
+      if (text) return { name: text.slice(0, 80), source: 'own_text' };
+    }
     // Last resort: legacy table-layout forms often put the label in the
     // preceding <td> of the same row with no programmatic association at
     // all. A human operator reads it visually; we approximate that — but

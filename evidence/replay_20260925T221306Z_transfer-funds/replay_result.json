@@ -1,0 +1,82 @@
+{
+  "kind": "success",
+  "capability_id": "transfer-funds",
+  "version": "1.0.0",
+  "run_id": "replay_20260925T221306Z",
+  "outputs": {
+    "transaction_id": "TXF-7004"
+  },
+  "business_outcome_name": null,
+  "business_outcome_description": null,
+  "failure": null,
+  "steps_executed": 11,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "fill",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 4,
+      "action": "select",
+      "strategy_used": "text",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 5,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 6,
+      "action": "select",
+      "strategy_used": "text",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 7,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 8,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 9,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 10,
+      "action": "read_text",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    }
+  ],
+  "evidence_dir": "/Users/hetnagda/Desktop/Project/TellerAI/evidence/replay_20260925T221306Z_transfer-funds"
+}

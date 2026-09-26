@@ -1,0 +1,38 @@
+{
+  "kind": "business_outcome",
+  "capability_id": "open-member-subaccount",
+  "version": "1.0.1",
+  "run_id": "replay_20260925T233512Z_f96b265a",
+  "outputs": {},
+  "business_outcome_name": "member_not_found",
+  "business_outcome_description": "The given member ID does not exist in the core system.",
+  "failure": null,
+  "steps_executed": 4,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "fill",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    }
+  ],
+  "evidence_dir": "/Users/hetnagda/Desktop/Project/TellerAI/evidence/replay_20260925T233512Z_f96b265a_open-member-subaccount"
+}

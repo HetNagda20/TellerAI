@@ -1,0 +1,62 @@
+{
+  "kind": "hard_failure",
+  "capability_id": "open-member-subaccount",
+  "version": "1.0.1",
+  "run_id": "replay_20260925T232800Z_def076b1",
+  "outputs": {},
+  "business_outcome_name": null,
+  "business_outcome_description": null,
+  "failure": {
+    "step_index": 5,
+    "action": "select",
+    "expected": "select to complete",
+    "observed": "Locator.select_option: Timeout 5000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"Savings\\nChecking\").first\n    - locator resolved to <select name=\"account_type\">…</select>\n  - attempting select option action\n    2 × waiting for element to be visible and enabled\n      - did not find some options\n    - retrying select option action\n    - waiting 20ms\n    2 × waiting for element to be visible and enabled\n      - did not find some options\n    - retrying select option action\n      - waiting 100ms\n    10 × waiting for element to be visible and enabled\n       - did not find some options\n     - retrying select option action\n       - waiting 500ms\n",
+    "message": "Exhausted 2 attempts after repeated transient timeouts. Transient timeout on attempt 2/2."
+  },
+  "steps_executed": 6,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "fill",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 4,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 5,
+      "action": "select",
+      "strategy_used": "text",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 5,
+      "action": "select",
+      "strategy_used": "text",
+      "recovered_condition": null
+    }
+  ],
+  "evidence_dir": "/Users/hetnagda/Desktop/Project/TellerAI/evidence/replay_20260925T232800Z_def076b1_open-member-subaccount"
+}

@@ -38,7 +38,17 @@ def resolve_frame_chain(page: Page, frame_chain: list[list[LocatorCandidate]]) -
 
 
 def resolve_target(scope: Scope, target: Target) -> Resolved:
+    """Tries each ranked candidate in order, but prefers whichever one first
+    resolves to exactly one element over an earlier, higher-priority
+    candidate that matches more than one — e.g. two same-shaped <select>
+    elements can share an identical role/name while their css_path
+    candidates remain positionally distinct. Falls back to the first
+    candidate that matched *something* (today's original behavior, via
+    `.first`) only if no candidate in the whole ranked list ever resolves
+    uniquely, so the common (already-unique) case is completely unchanged.
+    """
     errors = []
+    first_ambiguous: Optional[Resolved] = None
     for cand in target.candidates:
         try:
             if cand.strategy == LocatorStrategy.ROLE_NAME:
@@ -51,11 +61,17 @@ def resolve_target(scope: Scope, target: Target) -> Resolved:
                 continue  # coordinates are the last resort, handled after the loop
             else:
                 continue
-            if loc.count() >= 1:
+            count = loc.count()
+            if count == 1:
                 return Resolved(locator=loc.first, strategy=cand.strategy.value)
+            if count > 1 and first_ambiguous is None:
+                first_ambiguous = Resolved(locator=loc.first, strategy=cand.strategy.value)
         except Exception as e:  # noqa: BLE001 - deliberately broad: any candidate may legitimately fail
             errors.append(f"{cand.strategy.value}: {e}")
             continue
+
+    if first_ambiguous is not None:
+        return first_ambiguous
 
     coord = next((c for c in target.candidates if c.strategy == LocatorStrategy.COORDINATES), None)
     if coord is not None:

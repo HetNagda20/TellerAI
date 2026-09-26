@@ -39,6 +39,7 @@ a new procedure is what discovery is for.
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +59,7 @@ from artifact.schema import (
 )
 from guardrails.allowlist import Allowlist
 from guardrails.policy import classify_action
+from guardrails.redact import redact_value
 from handoff.session import HandoffSession, InterventionRequest
 from replay.locators import ResolutionError, resolve_frame_chain, resolve_target
 from replay.outcomes import FailureDetail, ReplayResult, StrategyLogEntry
@@ -79,7 +81,18 @@ def _fmt(value: Optional[str], params: dict[str, str]) -> Optional[str]:
 
 
 def _run_id() -> str:
-    return datetime.now(timezone.utc).strftime("replay_%Y%m%dT%H%M%SZ")
+    """Second-granularity timestamp plus a short random suffix. The timestamp
+    alone is not enough: two concurrent replay invocations of the same
+    capability starting within the same wall-clock second would otherwise get
+    the identical run_id, hence the identical evidence_dir path, and race
+    writing replay_result.json/replay_input.json/screenshots into the same
+    files. This is the one actual shared-mutable-state hazard in this module
+    (everything else -- run_id, evidence_dir, browser, page, outputs,
+    strategy_log -- is already a per-call local, verified by inspection);
+    fixing it needs no locks or infrastructure, just a collision-resistant id.
+    """
+    stamp = datetime.now(timezone.utc).strftime("replay_%Y%m%dT%H%M%SZ")
+    return f"{stamp}_{uuid.uuid4().hex[:8]}"
 
 
 def _check_checkpoint(page: Page, checkpoint: Checkpoint, params: dict[str, str]) -> bool:
@@ -155,6 +168,14 @@ def replay_artifact(
     missing = [p.name for p in artifact.inputs if p.required and p.name not in params]
     if missing:
         raise ValueError(f"Missing required params: {missing}")
+
+    declared_names = {p.name for p in artifact.inputs}
+    unknown = [name for name in params if name not in declared_names]
+    if unknown:
+        raise ValueError(
+            f"Unknown params not declared by this artifact's inputs: {unknown}. "
+            f"Declared inputs: {sorted(declared_names)}."
+        )
 
     run_id = _run_id()
     evidence_dir = EVIDENCE_ROOT / f"{run_id}_{artifact.capability_id}"
@@ -404,6 +425,12 @@ def _run_step_once(page, step, params, allowlist: Allowlist, strategy_log: list[
 
 def _write_evidence(evidence_dir: Path, artifact: Artifact, params: dict[str, str], result: ReplayResult) -> None:
     (evidence_dir / "replay_result.json").write_text(result.model_dump_json(indent=2))
+    # Redact by field name for the *written copy* only — the real `params` dict
+    # (unredacted) is what already drove Playwright above; evidence is audit-only
+    # and never re-resolved, so a plain [REDACTED] substitution here is safe
+    # (contrast with artifact/recorder.py's _scrub_target, which must preserve
+    # replayability and so drops rather than substitutes).
+    safe_params = {name: redact_value(name, value) for name, value in params.items()}
     (evidence_dir / "replay_input.json").write_text(
-        json.dumps({"capability_id": artifact.capability_id, "version": artifact.version, "params": params}, indent=2)
+        json.dumps({"capability_id": artifact.capability_id, "version": artifact.version, "params": safe_params}, indent=2)
     )

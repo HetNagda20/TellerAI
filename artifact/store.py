@@ -26,3 +26,11 @@ def load_path(path: str | Path) -> Artifact:
 def latest_version_path(capability_id: str) -> Path | None:
     candidates = sorted(ARTIFACTS_DIR.glob(f"{capability_id}@*.json"))
     return candidates[-1] if candidates else None
+
+
+def list_capability_ids() -> list[str]:
+    """Every distinct capability_id with at least one saved version on disk —
+    used by the router to know what it can possibly match a goal against,
+    without hardcoding any capability name.
+    """
+    return sorted({p.name.rsplit("@", 1)[0] for p in ARTIFACTS_DIR.glob("*@*.json")})
