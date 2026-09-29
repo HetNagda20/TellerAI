@@ -5,12 +5,12 @@ Two layers, deliberately redundant:
      sensitive field (password, SSN, card number, ...), redact the value
      outright, regardless of content.
   2. Pattern based: scrub common PII/secret shapes (SSNs, card numbers,
-     bearer tokens) out of free text even when we don't know the field name
-     — e.g. out of an LLM's rationale string or a page's error text.
+     bearer tokens) out of free text even when we do not know the field
+     name, e.g. out of an LLM's rationale string or a page's error text.
 
 Note artifacts are parameterized by construction (steps reference
-`{param_name}`, never literal values, see artifact/schema.py), so this
-module's main job is the *run log*, which does capture concrete values.
+{param_name}, never literal values, see artifact/schema.py), so this
+module's main job is the run log, which does capture concrete values.
 """
 
 from __future__ import annotations

@@ -1,0 +1,27 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="6" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Transaction Entry - Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    <tr><td colspan="2">Select a transaction type:</td></tr>
+    <tr>
+      <td valign="top"><a href="/member/{{ member_id }}/transactions/new/transfer">Transfer Funds</a></td>
+    </tr>
+    <tr>
+      <td valign="top"><font color="#888888">Deposit</font></td>
+      <td><font color="#888888">Not available in this demo console.</font></td>
+    </tr>
+    <tr>
+      <td valign="top"><font color="#888888">Withdrawal</font></td>
+      <td><font color="#888888">Not available in this demo console.</font></td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/transactions/new">Back to Member Lookup</a>
+</body>
+</html>

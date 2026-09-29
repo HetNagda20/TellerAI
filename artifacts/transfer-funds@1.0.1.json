@@ -3,7 +3,7 @@
   "version": "1.0.1",
   "status": "draft",
   "description": "Transfers funds from one member's account to another member's account and reaches the confirmation screen.",
-  "goal_template": "Transfer exactly $100 from member 10001's checking account to member 10002's checking account, then reach the confirmation screen.",
+  "goal_template": "Transfer $50 from member 10001's checking account to member 20001's checking account and reach the confirmation screen.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
@@ -19,40 +19,32 @@
       "example": "10001"
     },
     {
-      "name": "from_account",
-      "type": "string",
-      "required": true,
-      "description": "Value for from_account.",
-      "example": "Checking"
-    },
-    {
       "name": "to_member_id",
       "type": "number",
       "required": true,
       "description": "Value for to_member_id.",
-      "example": "10002"
-    },
-    {
-      "name": "to_account",
-      "type": "string",
-      "required": true,
-      "description": "Value for to_account.",
-      "example": "Checking"
+      "example": "20001"
     },
     {
       "name": "amount",
       "type": "number",
       "required": true,
       "description": "Value for amount.",
-      "example": "100"
+      "example": "50"
     }
   ],
   "outputs": [
     {
-      "name": "transaction_id",
+      "name": "confirmation_number",
       "type": "string",
-      "description": "Value read for transaction_id.",
-      "source_step": 10
+      "description": "Value read for confirmation_number.",
+      "source_step": 12
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "description": "Value read for status.",
+      "source_step": 13
     }
   ],
   "steps": [
@@ -70,21 +62,21 @@
     {
       "index": 1,
       "action": "click",
-      "description": "Navigate to Transfers section to perform the transfer between member accounts",
+      "description": "Navigate to Transactions section to initiate a transfer between accounts.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "link",
-              "name": "Transfers"
+              "name": "Transactions"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "Transfers"
+              "text": "Transactions"
             },
             "observed_at_record_time": false
           },
@@ -98,8 +90,8 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 116,
-              "y": 45
+              "x": 127,
+              "y": 44
             },
             "observed_at_record_time": false
           }
@@ -114,22 +106,67 @@
     },
     {
       "index": 2,
-      "action": "fill",
-      "description": "Search for member 10001 to access their accounts for transfer",
+      "action": "click",
+      "description": "Transaction Entry likely allows performing a transfer between accounts.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
-              "role": "textbox",
-              "name": "e.g. 10001"
+              "role": "link",
+              "name": "Transaction Entry"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "e.g. 10001"
+              "text": "Transaction Entry"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(3) > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 77,
+              "y": 160
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 3,
+      "action": "fill",
+      "description": "Search for member 10001 to find their checking account for the transfer source.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "textbox",
+              "name": "e.g. {member_id}"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "e.g. {member_id}"
             },
             "observed_at_record_time": false
           },
@@ -143,7 +180,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 152,
+              "x": 150,
               "y": 127
             },
             "observed_at_record_time": false
@@ -158,9 +195,9 @@
       "source": "llm"
     },
     {
-      "index": 3,
+      "index": 4,
       "action": "click",
-      "description": "Submit search for member 10001",
+      "description": "Submit search for member 10001.",
       "target": {
         "candidates": [
           {
@@ -188,7 +225,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 234,
+              "x": 230,
               "y": 127
             },
             "observed_at_record_time": false
@@ -203,9 +240,54 @@
       "source": "llm"
     },
     {
-      "index": 4,
+      "index": 5,
+      "action": "click",
+      "description": "Select Transfer Funds transaction type.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Transfer Funds"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Transfer Funds"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(3) > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 68,
+              "y": 160
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 6,
       "action": "select",
-      "description": "Select From Account as Checking for member 10001",
+      "description": "Set From Account to Checking for member 10001.",
       "target": {
         "candidates": [
           {
@@ -226,16 +308,16 @@
         ],
         "frame_chain": []
       },
-      "value_template": "{from_account}",
+      "value_template": "Checking",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
     },
     {
-      "index": 5,
+      "index": 7,
       "action": "fill",
-      "description": "Set destination member ID to 10002",
+      "description": "Set destination member ID to 20001.",
       "target": {
         "candidates": [
           {
@@ -248,7 +330,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 171,
+              "x": 169,
               "y": 144
             },
             "observed_at_record_time": false
@@ -263,9 +345,9 @@
       "source": "llm"
     },
     {
-      "index": 6,
+      "index": 8,
       "action": "select",
-      "description": "Set destination account type to Checking for member 10002",
+      "description": "Set destination account to Checking.",
       "target": {
         "candidates": [
           {
@@ -286,16 +368,16 @@
         ],
         "frame_chain": []
       },
-      "value_template": "{to_account}",
+      "value_template": "Checking",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
     },
     {
-      "index": 7,
+      "index": 9,
       "action": "fill",
-      "description": "Enter the transfer amount of $100",
+      "description": "Set transfer amount to $50.",
       "target": {
         "candidates": [
           {
@@ -308,7 +390,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 164,
+              "x": 162,
               "y": 192
             },
             "observed_at_record_time": false
@@ -323,9 +405,9 @@
       "source": "llm"
     },
     {
-      "index": 8,
+      "index": 10,
       "action": "click",
-      "description": "Proceed to review the transfer details before confirming",
+      "description": "Proceed to review the transfer details before confirming.",
       "target": {
         "candidates": [
           {
@@ -354,7 +436,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 74,
-              "y": 217
+              "y": 218
             },
             "observed_at_record_time": false
           }
@@ -368,9 +450,9 @@
       "source": "llm"
     },
     {
-      "index": 9,
+      "index": 11,
       "action": "click",
-      "description": "Confirm the transfer to complete the transaction",
+      "description": "Confirm the transfer to complete the transaction and reach the confirmation screen.",
       "target": {
         "candidates": [
           {
@@ -399,7 +481,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 74,
-              "y": 185
+              "y": 186
             },
             "observed_at_record_time": false
           }
@@ -413,23 +495,23 @@
       "source": "llm"
     },
     {
-      "index": 10,
+      "index": 12,
       "action": "read_text",
-      "description": "Read the confirmation transaction number for the record",
+      "description": "Read the confirmation transaction number for the completed transfer.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "text",
-              "name": "TXF-7006"
+              "name": "TXF-7003"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "TXF-7006"
+              "text": "TXF-7003"
             },
             "observed_at_record_time": false
           },
@@ -444,7 +526,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 203,
-              "y": 133
+              "y": 134
             },
             "observed_at_record_time": false
           }
@@ -452,7 +534,52 @@
         "frame_chain": []
       },
       "value_template": null,
-      "extract_as": "transaction_id",
+      "extract_as": "confirmation_number",
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 13,
+      "action": "read_text",
+      "description": "Read the exact confirmation status text element to provide verified provenance.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "text",
+              "name": "Transfer completed."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Transfer completed."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(3) > tbody > tr > td > b:nth-of-type(1)"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 87,
+              "y": 97
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": "status",
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
@@ -460,7 +587,7 @@
   ],
   "final_checkpoint": {
     "kind": "url_contains",
-    "value": "/member/{member_id}/transfer/confirm",
+    "value": "/member/{member_id}/transactions/new/transfer/confirm",
     "target": null
   },
   "business_outcomes": [
@@ -493,7 +620,16 @@
     }
   ],
   "recoverable_conditions": [],
+  "commit_verification": {
+    "navigate_template": "{base_url}/member/{member_id}/transactions",
+    "detect": {
+      "kind": "text_contains",
+      "value": "Transfer to {to_member_id}",
+      "target": null
+    },
+    "description": "Checks the sending member's own transaction history for a transfer to the declared recipient, the best generic signal available without a confirmation number."
+  },
   "overall_risk": "confirm",
-  "created_from_run_id": "discovery_20260925T224554Z",
-  "created_at": "2026-09-25T22:46:16.613121Z"
+  "created_from_run_id": "discovery_20260929T155319Z",
+  "created_at": "2026-09-29T15:53:52.662236Z"
 }

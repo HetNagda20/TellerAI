@@ -5,12 +5,12 @@
 <table cellpadding="4" cellspacing="0" border="1">
 <tr><td>
   <table cellpadding="2" cellspacing="0" border="0">
-    <tr><td colspan="2"><b>Open New Sub-Account &mdash; Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    <tr><td colspan="2"><b>Open New Sub-Account - Member {{ member_id }} ({{ member.name }})</b></td></tr>
     {% if error %}
     <tr><td colspan="2"><font color="red">{{ error }}</font></td></tr>
     {% endif %}
     <tr><td colspan="2">
-      <form method="post" action="/member/{{ member_id }}/new-subaccount">
+      <form method="post" action="/member/{{ member_id }}/accounts/new">
         <table cellpadding="2" cellspacing="0" border="0">
           <tr>
             <td>Account Type:</td>

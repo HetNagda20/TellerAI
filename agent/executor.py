@@ -1,14 +1,14 @@
 """Executes one tool call against the live page, enforcing guardrails and
 routing risky actions through the human-handoff session before they happen.
 
-This is the single chokepoint both the LLM-driven loop calls through — no
-tool call reaches Playwright without passing `_check_policy` first. That's
-deliberate: the allowlist and risk policy are enforced *here*, not trusted
-to the LLM's judgment.
+This is the single chokepoint the LLM-driven loop calls through: no tool
+call reaches Playwright without passing _check_policy first. The allowlist
+and risk policy are enforced here, not trusted to the LLM's judgment.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +22,8 @@ from guardrails.allowlist import Allowlist
 from guardrails.policy import classify_action
 from guardrails.redact import redact_value
 from handoff.session import HandoffSession, InterventionRequest
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -42,10 +44,10 @@ class StepLog:
     error: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     source: str = "llm"
-    """'llm' (default, a normal tool call) or 'human_intervention' (captured while a
-    human had control — see Executor.record_human_action). Threaded through by
-    artifact/recorder.py into Step.source unchanged; this is the single place both
-    kinds of step live, so the recorder doesn't need two code paths."""
+    """'llm' (default, a normal tool call) or 'human_intervention' (captured
+    while a human had control, see Executor.record_human_action). Threaded
+    through by artifact/recorder.py into Step.source unchanged; this is the
+    single place both kinds of step live."""
 
 
 class DeadEnd(Exception):
@@ -69,24 +71,20 @@ class Executor:
         self.evidence_dir = evidence_dir
         self.steps: list[StepLog] = []
         self._snapshot: Optional[Snapshot] = None
-        # Optional GestureController (handoff/gesture.py) — marks each dispatched
-        # action as "ours" so a human's own click/keypress elsewhere is detectable.
+        # Optional GestureController: marks each dispatched action as "ours" so a
+        # human's own click/keypress elsewhere is detectable.
         self._gesture = gesture
 
     def _dispatch(self, fn):
-        """Runs one real Playwright action, bracketed so gesture detection can tell
-        'we did this' apart from a human doing something else on the page.
-
-        Also where LLM_CONTROL is actually enforced, not just narrated. Every
-        Executor method that touches the page funnels through here, so this is
-        the one place that needs the check — an LLM-driven action dispatched
-        while a human formally has control (HandoffSession.state) is a real bug,
-        not something to fail into silently.
-        """
+        """Runs one real Playwright action, bracketed so gesture detection can
+        tell "we did this" apart from a human doing something else on the
+        page. Also where LLM_CONTROL is actually enforced, not just
+        narrated: every Executor method that touches the page funnels
+        through here."""
         if not self.handoff.is_agent_allowed():
             raise RuntimeError(
                 f"Refusing to dispatch an LLM-driven action while session state is "
-                f"{self.handoff.state.value!r} — control has not been handed back yet."
+                f"{self.handoff.state.value!r}. Control has not been handed back yet."
             )
         if self._gesture is None:
             return fn()
@@ -96,7 +94,7 @@ class Executor:
         finally:
             self._gesture.mark_active(False)
 
-    # -- perception -----------------------------------------------------
+    # -- perception --------------------------------------------------------
 
     def refresh_snapshot(self) -> Snapshot:
         self._snapshot = take_snapshot(self.page)
@@ -108,7 +106,7 @@ class Executor:
             return self.refresh_snapshot()
         return self._snapshot
 
-    # -- guardrail chokepoint --------------------------------------------
+    # -- guardrail chokepoint ------------------------------------------------
 
     def _check_policy(self, action: str, element_name: Optional[str], url: Optional[str]) -> str:
         url_ok = self.allowlist.url_allowed(url) if url else True
@@ -117,22 +115,24 @@ class Executor:
         return classify_action(action, element_name, url_ok)
 
     def _gate(self, risk: str, action: str, context: str) -> tuple[bool, str]:
-        """Returns (allowed, note). Blocks outright, or escalates 'confirm' risk to a human."""
+        """Returns (allowed, note). Blocks outright, or escalates confirm risk to a human."""
         if risk == "blocked":
+            logger.warning("blocked by allowlist/policy: action=%s context=%s", action, context)
             return False, "blocked by allowlist policy"
         if risk == "confirm":
+            logger.warning("escalation raised reason=risky_action_confirm action=%s", action)
             record = self.handoff.escalate(
                 InterventionRequest(
                     reason="risky_action_confirm",
                     goal_or_capability=self.goal,
-                    message=f"About to {action}: {context}. This looks irreversible — approve?",
+                    message=f"About to {action}: {context}. This looks irreversible, approve?",
                     step_index=len(self.steps),
                 )
             )
             return record.outcome == "approved", record.human_note
         return True, ""
 
-    # -- tools exposed to the LLM -----------------------------------------
+    # -- tools exposed to the LLM --------------------------------------------
 
     def navigate(self, url: str, rationale: str) -> dict[str, Any]:
         risk = self._check_policy("navigate", None, url)
@@ -203,20 +203,20 @@ class Executor:
         return result
 
     def record_human_action(self, action: str, descriptor: dict, value: Optional[str], url: str) -> StepLog:
-        """Turns one captured human interaction (handoff/gesture.py's action-capture
-        listener) into a StepLog with `source="human_intervention"`, using the exact
-        same Target-building path a normal LLM-driven step uses.
+        """Turns one captured human interaction into a StepLog with
+        source="human_intervention", using the same Target-building path a
+        normal LLM-driven step uses.
 
-        `descriptor` is the {role, name, name_source, css, bbox, options} dict the
-        capture listener computed client-side, synchronously, at the moment of the
-        click/change — see handoff/gesture.py for why that can't wait for a Python
-        round-trip first. Building a PerceivedElement from it and calling
-        .to_target() reuses agent.perception's locator-candidate logic verbatim,
-        so a human-taught step gets the identical ranked-fallback Target an
-        LLM-discovered step would, not a second, weaker representation.
+        descriptor is the {role, name, name_source, css, bbox, options}
+        dict the capture listener computed client-side, synchronously, at
+        the moment of the click/change (see handoff/gesture.py). Building a
+        PerceivedElement from it and calling .to_target() reuses
+        agent.perception's locator-candidate logic verbatim, so a
+        human-taught step gets the identical ranked-fallback Target an
+        LLM-discovered step would.
 
-        Not called through _dispatch(): nothing is being dispatched here — the
-        human already performed this action directly; this only records it.
+        Not called through _dispatch(): the human already performed this
+        action directly, this only records it.
         """
         el = PerceivedElement(
             ref="human",

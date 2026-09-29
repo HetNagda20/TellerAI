@@ -5,12 +5,12 @@
 <table cellpadding="4" cellspacing="0" border="1">
 <tr><td>
   <table cellpadding="2" cellspacing="0" border="0">
-    <tr><td colspan="2"><b>Transfer Funds &mdash; From Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    <tr><td colspan="2"><b>Transfer Funds - From Member {{ member_id }} ({{ member.name }})</b></td></tr>
     {% if error %}
     <tr><td colspan="2"><font color="red">{{ error }}</font></td></tr>
     {% endif %}
     <tr><td colspan="2">
-      <form method="post" action="/member/{{ member_id }}/transfer">
+      <form method="post" action="/member/{{ member_id }}/transactions/new/transfer">
         <table cellpadding="2" cellspacing="0" border="0">
           <tr>
             <td>From Account:</td>
@@ -48,6 +48,6 @@
 </td></tr>
 </table>
 <br>
-<a href="/member/{{ member_id }}">Back to Member Record</a>
+<a href="/member/{{ member_id }}/transactions/new">Back to Transaction Type</a>
 </body>
 </html>

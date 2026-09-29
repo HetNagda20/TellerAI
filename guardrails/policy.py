@@ -9,12 +9,12 @@ name matches an irreversible/state-changing verb is `confirm`; navigation
 outside the allowlist is `blocked`; everything else is `safe`.
 
 Patterns are deliberately specific rather than bare domain-action verbs. An
-earlier version included a standalone `\btransfer\b`, which — found during a
-real discovery run — flagged "Review Transfer" (a safe, reversible step in a
+earlier version included a standalone \btransfer\b, which, found during a
+real discovery run, flagged "Review Transfer" (a safe, reversible step in a
 two-step review-then-confirm flow) as needing human sign-off, not just the
 actual commit button "Confirm Transfer". A bare "submit" would have the same
 problem the moment any safe form uses that word for its button. The fix is
-to require the pattern to name the *commit* action, not just its domain
+to require the pattern to name the commit action, not just its domain
 ("confirm ...", or a specific always-final verb+object like "delete member").
 """
 

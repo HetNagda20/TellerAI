@@ -1,0 +1,31 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr>
+  <td>
+    <table cellpadding="4" cellspacing="0" border="0">
+      <tr><td>{{ heading }}</td></tr>
+      <tr>
+        <td>
+          <form method="post" action="{{ search_action }}">
+            <table cellpadding="2" cellspacing="0" border="0">
+              <tr>
+                <td>Member ID:</td>
+                <td><input type="text" name="member_id" size="12" placeholder="e.g. 10001"></td>
+                <td><input type="submit" value="Search"></td>
+              </tr>
+            </table>
+          </form>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+</table>
+{% if error %}
+<p><font color="red">{{ error }}</font></p>
+{% endif %}
+</body>
+</html>

@@ -5,12 +5,12 @@
 <table cellpadding="4" cellspacing="0" border="1">
 <tr><td>
   <table cellpadding="2" cellspacing="0" border="0">
-    <tr><td colspan="2"><b>Confirm New Sub-Account &mdash; Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    <tr><td colspan="2"><b>Confirm New Sub-Account - Member {{ member_id }} ({{ member.name }})</b></td></tr>
     <tr><td>Account Type:</td><td>{{ account_type|capitalize }}</td></tr>
     <tr><td>Initial Deposit:</td><td>${{ "%.2f"|format(initial_deposit) }}</td></tr>
     <tr><td>Funding Source:</td><td>{{ {"cash": "Cash Deposit", "checking": "Transfer from Checking", "savings": "Transfer from Savings"}[funding_source] }}</td></tr>
     <tr><td colspan="2">
-      <form method="post" action="/member/{{ member_id }}/new-subaccount/confirm">
+      <form method="post" action="/member/{{ member_id }}/accounts/new/confirm">
         <input type="hidden" name="account_type" value="{{ account_type }}">
         <input type="hidden" name="initial_deposit" value="{{ initial_deposit }}">
         <input type="hidden" name="funding_source" value="{{ funding_source }}">
@@ -21,6 +21,6 @@
 </td></tr>
 </table>
 <br>
-<a href="/member/{{ member_id }}/new-subaccount">Back to Form</a>
+<a href="/member/{{ member_id }}/accounts/new">Back to Form</a>
 </body>
 </html>

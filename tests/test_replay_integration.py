@@ -1,7 +1,7 @@
 """End-to-end replay tests against the live mock app, using a hand-built
 artifact that mirrors the real "open-member-subaccount" flow.
 
-This is deliberately NOT the artifact the discovery run produces — per the
+This is deliberately NOT the artifact the discovery run produces, per the
 assignment, only a genuine LLM-driven run may produce that one (see
 /evidence/). This test exists to validate the replay engine's mechanics
 (locator fallback, frame traversal, business-outcome/recoverable-condition
@@ -85,7 +85,7 @@ def _build_artifact() -> Artifact:
         ]
     )
     # success.html has two <b> tags in the same cell ("...successfully." and
-    # the confirmation number itself) — nth-of-type(2) picks the second.
+    # the confirmation number itself), nth-of-type(2) picks the second.
     confirmation_number_cell = Target(
         candidates=[LocatorCandidate(strategy=LocatorStrategy.CSS_PATH, value={"css": "td b:nth-of-type(2)"})]
     )
@@ -103,7 +103,7 @@ def _build_artifact() -> Artifact:
         Step(index=9, action=ActionType.READ_TEXT, description="Read confirmation number.", target=confirmation_number_cell, extract_as="confirmation_number"),
     ]
 
-    business_outcomes, recoverable = annotations_for("open-member-subaccount")
+    business_outcomes, recoverable, commit_verification = annotations_for("open-member-subaccount")
 
     return Artifact(
         capability_id="open-member-subaccount",
@@ -123,6 +123,7 @@ def _build_artifact() -> Artifact:
         final_checkpoint=Checkpoint(kind=CheckpointKind.URL_CONTAINS, value="/new-subaccount/confirm"),
         business_outcomes=business_outcomes,
         recoverable_conditions=recoverable,
+        commit_verification=commit_verification,
         created_from_run_id="hand_built_for_tests",
     )
 

@@ -1,25 +1,25 @@
-"""The goal-driven observe -> decide -> act loop.
+"""The goal-driven observe, decide, act loop.
 
 Runs a real, headed Playwright browser against the target. Every decision
 comes from Claude, grounded in the accessibility-style snapshot (see
-perception.py) — never from hardcoded logic. The loop stops when the model
+perception.py), never from hardcoded logic. The loop stops when the model
 calls `done` (goal met), `give_up` (routed to human escalation as a "stuck"
-event), or a hard stopping condition (max steps / wall-clock timeout) is hit.
+event), or a hard stopping condition (max steps or wall-clock timeout).
 
 Human escalation (give_up, a proactive gesture, or a file-touch request) is
 learning, not just a pause: whatever the human does on the live page while
 they have control is captured as real Step-shaped entries
 (source="human_intervention", see agent/executor.py's record_human_action)
-and merged into the same `executor.steps` list the LLM's own actions land
-in, in the order everything actually happened. The artifact recorder
-(artifact/recorder.py) doesn't need to know or care which steps came from
-which source to build a correct, replayable sequence — see
-_record_captured_actions below for where that merge happens.
+and merged into the same executor.steps list the LLM's own actions land in,
+in the order everything actually happened. The artifact recorder does not
+need to know which steps came from which source to build a correct,
+replayable sequence.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -36,8 +36,10 @@ from guardrails.redact import redact_text
 from handoff.gesture import GestureController
 from handoff.session import HandoffSession, InterventionRequest, _CliOperator
 
+logger = logging.getLogger(__name__)
+
 EVIDENCE_ROOT = Path(__file__).resolve().parent.parent / "evidence"
-MAX_STEPS_DEFAULT = 20
+MAX_STEPS_DEFAULT = 30
 TIMEOUT_S_DEFAULT = 300
 REPEAT_VISIT_WARNING_THRESHOLD = 2  # nudge on the 3rd visit to the same URL this run
 
@@ -61,15 +63,36 @@ def _run_id() -> str:
     return datetime.now(timezone.utc).strftime("discovery_%Y%m%dT%H%M%SZ")
 
 
-def _record_captured_actions(executor: Executor, captured: list[dict]) -> str:
-    """Converts every {action, descriptor, value} a human performed during an
-    intervention into a real StepLog (source="human_intervention"), in order,
-    via Executor.record_human_action — the same StepLog list the recorder later
-    turns into artifact Steps, so a human-taught action is not a side note, it's
-    part of the sequence (requirements C/D/F). Returns a short summary string to
-    fold into the feedback message the LLM sees next, so it knows what changed
-    on the page and why, not just that something did.
+def _unproven_outputs(steps: list[StepLog], outputs: dict[str, Any]) -> list[str]:
+    """Which claimed `done` output keys have no deterministic provenance.
+
+    The LLM can see a value in the accessibility snapshot and write it into
+    done's outputs without ever calling read_text. artifact/recorder.py
+    already refuses to declare an OutputField with no read_text step behind
+    it; this closes the same gap one layer earlier, at the moment discovery
+    itself decides the goal is complete, so the model gets a chance to fix
+    it instead of silently losing the value later.
+
+    Two kinds of claimed output, matched deterministically against the run's
+    own step history, nothing hardcoded to a specific field name:
+
+    - An input echo: this exact value is something the agent itself already
+      wrote onto the page via an earlier successful fill/select step.
+    - An extracted output: anything else. It must match the exact text a
+      successful read_text step actually returned, or it has no
+      deterministic provenance at all.
     """
+    echoed_values = {s.value for s in steps if s.action in ("fill", "select") and s.ok and s.value is not None}
+    read_values = {s.element_name for s in steps if s.action == "read_text" and s.ok and s.element_name is not None}
+    return [key for key, value in outputs.items() if value not in echoed_values and value not in read_values]
+
+
+def _record_captured_actions(executor: Executor, captured: list[dict]) -> str:
+    """Converts every action a human performed during an intervention into a
+    real StepLog (source="human_intervention"), in order, so a human-taught
+    action becomes part of the same sequence the recorder later turns into
+    artifact steps. Returns a short summary to fold into the next message to
+    the LLM."""
     if not captured:
         return ""
     lines = []
@@ -85,6 +108,23 @@ def _record_captured_actions(executor: Executor, captured: list[dict]) -> str:
     return "\nRecorded as replayable step(s):\n" + "\n".join(lines)
 
 
+def _restart_from_scratch(executor: Executor, goal: str, target_url: str) -> list[dict]:
+    """A human decided this attempt has gone wrong enough to start over, but
+    not so wrong the whole run should end. Same session, same run_id: wipes
+    the step log and the conversation, navigates back to the entry point, and
+    returns a fresh initial message, exactly what run_discovery() starts
+    with. The wall-clock deadline is untouched, so repeated restarts still
+    cannot outrun the original timeout."""
+    executor.steps.clear()
+    nav = executor.navigate(target_url, rationale="Restart requested by a human operator.")
+    return [
+        {
+            "role": "user",
+            "content": f"Goal: {goal}\n\n{executor.current_snapshot.to_prompt_text() if nav['ok'] else 'Failed to load target: ' + str(nav.get('error'))}",
+        }
+    ]
+
+
 def run_discovery(
     goal: str,
     target_url: str,
@@ -95,13 +135,13 @@ def run_discovery(
     run_id = _run_id()
     evidence_dir = EVIDENCE_ROOT / run_id
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("discovery start run_id=%s goal=%r target=%s", run_id, goal, target_url)
 
-    # A human doesn't have to wait for the model to hit a confirm gate or call give_up —
-    # touching this file from another terminal, at any point, pauses the run before its
-    # *next* step and hands control over, exactly like any other escalation (see the
-    # "human_requested" branch in the loop below). Checked once per step, not mid-step:
-    # cleanly interrupting a step already in flight (mid network call or mid click) would
-    # need real async cancellation, not worth it for a bare CLI operator surface.
+    # Touching this file from another terminal, at any point, pauses the run before
+    # its next step and hands control over, exactly like any other escalation.
+    # Checked once per step, not mid-step: cleanly interrupting a step already in
+    # flight would need real async cancellation, not worth it for a bare CLI
+    # operator surface.
     pause_flag_path = evidence_dir / "PAUSE_REQUESTED"
 
     allowlist = Allowlist.load()
@@ -113,21 +153,19 @@ def run_discovery(
     print(f"Run ID: {run_id}")
     print("To take control, either:")
     print(f"  - touch {pause_flag_path}   (from another terminal), or")
-    print("  - just click or type directly in the browser window — it's detected automatically")
+    print("  - just click or type directly in the browser window, it's detected automatically")
     print("    and a 'Resume Automation' button appears on the page when you're done.")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless, slow_mo=150 if not headless else 0)
         page = browser.new_page()
-        # Tags every request this run makes so the target app (and anyone watching its
-        # logs or data) can tell an LLM-driven discovery action apart from a deterministic
-        # replay action or an organic manual request — see replay/executor.py for the
-        # replay-side counterpart, and mock_app/app.py for how the server surfaces it.
+        # Tags every request this run makes so the target app can tell an LLM-driven
+        # discovery action apart from a deterministic replay action or an organic
+        # manual request. See replay/executor.py for the replay-side counterpart.
         page.set_extra_http_headers({"X-Automation-Source": "discovery", "X-Run-Id": run_id})
         gesture = GestureController(page) if not headless else None
         # Passing gesture through lets the risky-action confirm gate show an
-        # on-page Approve/Deny banner (handoff/gesture.py), not just a terminal
-        # prompt — see _CliOperator.confirm().
+        # on-page Approve/Deny banner, not just a terminal prompt.
         handoff = HandoffSession(
             page=page, run_id=run_id, evidence_dir=evidence_dir, operator=_CliOperator(gesture=gesture)
         )
@@ -157,6 +195,7 @@ def run_discovery(
 
                 if pause_flag_path.exists():
                     pause_flag_path.unlink()
+                    logger.warning("escalation raised reason=human_requested run_id=%s step=%s", run_id, step_n)
                     record = handoff.escalate(
                         InterventionRequest(
                             reason="human_requested",
@@ -165,6 +204,12 @@ def run_discovery(
                             step_index=step_n,
                         )
                     )
+                    if record.restart:
+                        logger.info("discovery restarted by human run_id=%s step=%s", run_id, step_n)
+                        messages = _restart_from_scratch(executor, goal, target_url)
+                        step_n = 0
+                        url_visit_counts = Counter()
+                        continue
                     if not record.resume:
                         outcome, summary = "human_stopped", f"Human operator ended the run: {record.human_note}"
                         break
@@ -183,6 +228,7 @@ def run_discovery(
 
                 if human_wants_control["flag"]:
                     human_wants_control["flag"] = False
+                    logger.warning("escalation raised reason=human_gesture run_id=%s step=%s", run_id, step_n)
                     record = handoff.escalate_via_gesture(
                         InterventionRequest(
                             reason="human_gesture",
@@ -192,6 +238,15 @@ def run_discovery(
                         ),
                         gesture,
                     )
+                    if record.restart:
+                        logger.info("discovery restarted by human run_id=%s step=%s", run_id, step_n)
+                        messages = _restart_from_scratch(executor, goal, target_url)
+                        step_n = 0
+                        url_visit_counts = Counter()
+                        continue
+                    if not record.resume:
+                        outcome, summary = "human_stopped", f"Human operator ended the run: {record.human_note}"
+                        break
                     captured_summary = _record_captured_actions(executor, record.captured_actions)
                     messages.append(
                         {
@@ -216,12 +271,10 @@ def run_discovery(
                     messages.append({"role": "user", "content": "Please call exactly one tool."})
                     continue
 
-                # disable_parallel_tool_use (agent/llm.py) should make this always length 1, but
-                # every tool_use in an assistant turn requires a matching tool_result in the very
-                # next message regardless — so if the model ever *does* emit more than one, every
-                # extra one past the first gets an explicit "not executed" result rather than
-                # being silently dropped (which previously left the conversation history invalid
-                # and broke the *next* API call, not this one — caught during a real run).
+                # disable_parallel_tool_use should make this always length 1, but every
+                # tool_use in an assistant turn requires a matching tool_result in the very
+                # next message regardless, so any extra tool_use past the first gets an
+                # explicit "not executed" result rather than being silently dropped.
                 primary, extra_tool_uses = tool_uses[0], tool_uses[1:]
                 result_blocks = [
                     {
@@ -237,8 +290,38 @@ def run_discovery(
                 step_n += 1
 
                 if name == "done":
+                    claimed_outputs = args.get("outputs", {})
+                    unproven = _unproven_outputs(executor.steps, claimed_outputs)
+                    if unproven:
+                        # Deterministic validation at the completion boundary: do not finish
+                        # discovery, do not let this become a recordable result, just tell the
+                        # model which claimed value(s) it never proved and loop back for it to
+                        # call read_text and try done again.
+                        result_blocks.insert(
+                            0,
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": primary.id,
+                                "content": json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": (
+                                            f"done rejected: output(s) {unproven} have no deterministic "
+                                            "provenance. Each output must either be a value you already "
+                                            "entered into the page yourself, or come from the exact text "
+                                            "returned by a read_text call on the specific element it came "
+                                            "from. Call read_text on the element(s) these value(s) actually "
+                                            "come from, then call done again."
+                                        ),
+                                    }
+                                ),
+                            },
+                        )
+                        messages.append({"role": "user", "content": result_blocks})
+                        continue
+
                     outcome, summary = "done", args.get("summary", "")
-                    outputs = args.get("outputs", {})
+                    outputs = claimed_outputs
                     result_blocks.insert(
                         0, {"type": "tool_result", "tool_use_id": primary.id, "content": json.dumps({"ok": True, "final": True})}
                     )
@@ -247,11 +330,10 @@ def run_discovery(
 
                 if name == "give_up":
                     reason = args.get("reason", "no reason given")
-                    # Structured intervention context (requirement A): not just "stuck",
-                    # but the goal, the reason in the agent's own words, and the exact
-                    # page-state text it was reasoning over when it decided to escalate —
-                    # the same thing a human debugging "why did it think it was stuck"
-                    # would want, and richer than a screenshot alone.
+                    logger.warning("escalation raised reason=stuck run_id=%s step=%s detail=%r", run_id, step_n, reason)
+                    # Structured intervention context: the goal, the reason in the agent's
+                    # own words, and the exact page-state text it was reasoning over when it
+                    # decided to escalate.
                     record = handoff.escalate(
                         InterventionRequest(
                             reason="stuck",
@@ -261,13 +343,21 @@ def run_discovery(
                             context_snapshot=executor.current_snapshot.to_prompt_text(),
                         )
                     )
+                    if record.restart:
+                        # Restart takes priority over resume/end: same session, but the
+                        # conversation that led to this give_up (including the give_up
+                        # tool_use itself) is discarded along with everything else, so
+                        # there is no dangling tool_use to match a result for.
+                        logger.info("discovery restarted by human run_id=%s step=%s", run_id, step_n)
+                        messages = _restart_from_scratch(executor, goal, target_url)
+                        step_n = 0
+                        url_visit_counts = Counter()
+                        continue
                     if not record.resume:
-                        # The human judged this unrecoverable — end the run here rather than
-                        # loop back into another give_up. Without this, a genuinely unfixable
-                        # business fact (e.g. a recipient that will never exist) causes the
-                        # agent to re-escalate the same conclusion every turn until max_steps,
-                        # burning the full step budget on repeated API calls for nothing new.
-                        # Caught for real during a discovery run before this check existed.
+                        # The human judged this unrecoverable: end the run here rather than loop
+                        # back into another give_up. Without this, an unfixable business fact
+                        # (e.g. a recipient that will never exist) causes the agent to re-escalate
+                        # the same conclusion every turn until max_steps.
                         _record_captured_actions(executor, record.captured_actions)
                         outcome, summary = "give_up", f"{reason} (human confirmed: {record.human_note})"
                         result_blocks.insert(
@@ -275,9 +365,9 @@ def run_discovery(
                         )
                         messages.append({"role": "user", "content": result_blocks})
                         break
-                    # human fixed something recoverable — record what they did as real,
-                    # replayable steps (requirement C/D), then give the agent the resulting
-                    # state and let it continue from there (requirement E).
+                    # Human fixed something recoverable: record what they did as real,
+                    # replayable steps, then give the agent the resulting state and let it
+                    # continue from there.
                     captured_summary = _record_captured_actions(executor, record.captured_actions)
                     result = {
                         "ok": True,
@@ -292,15 +382,13 @@ def run_discovery(
                     else:
                         result = method(**args)
 
-                    # Structural nudge, not just a prompt instruction: every action's *own*
-                    # tool result already tells the model whether it worked — nothing tells it
-                    # "you've been here before." Found for real: against a structurally dead end
-                    # (a locked account with no unlock path), the model never called give_up —
-                    # it just kept trying other tabs/features for the full step budget, since
-                    # every individual click still technically succeeded. Counting revisits to
-                    # the same URL and attaching a direct nudge to the result once a page repeats
-                    # doesn't override the model's judgment (it can still choose to try something
-                    # else), but stops relying solely on it to notice a loop on its own.
+                    # Structural nudge, not just a prompt instruction: every action's own tool
+                    # result already tells the model whether it worked; nothing tells it "you've
+                    # been here before." Against a structurally dead end (a locked account with
+                    # no unlock path), the model kept trying other tabs for the full step budget
+                    # since every individual click still technically succeeded. Counting
+                    # revisits and attaching a nudge once a page repeats does not override the
+                    # model's judgment, but stops relying solely on it to notice a loop.
                     current_url = page.url
                     url_visit_counts[current_url] += 1
                     if url_visit_counts[current_url] > REPEAT_VISIT_WARNING_THRESHOLD and isinstance(result, dict):
@@ -322,6 +410,11 @@ def run_discovery(
         finally:
             browser.close()
 
+        if outcome == "done":
+            logger.info("discovery success run_id=%s steps=%s", run_id, step_n)
+        else:
+            logger.error("discovery did not complete run_id=%s outcome=%s summary=%r", run_id, outcome, summary)
+
         result = DiscoveryResult(
             run_id=run_id,
             success=(outcome == "done"),
@@ -340,14 +433,10 @@ def run_discovery(
 
 
 def _redact_for_evidence(obj: Any) -> Any:
-    """Blunt, recursive text redaction for evidence -- audit-only, never
-    re-resolved, so a plain substring substitution is safe here (contrast
-    with artifact/recorder.py's _scrub_target, which must preserve
-    replayability and so drops a sensitive locator candidate rather than
-    substituting into it). Covers what StepLog-creation-time redaction
-    doesn't: rationale text and a step's raw target (e.g. a read_text step's
-    locator candidates, built from whatever text was actually on the page).
-    """
+    """Recursive text redaction for evidence, audit-only and never
+    re-resolved, so a plain substring substitution is safe here. Covers what
+    StepLog-creation-time redaction does not: rationale text and a step's
+    raw target."""
     if isinstance(obj, str):
         return redact_text(obj)
     if isinstance(obj, dict):

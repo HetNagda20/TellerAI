@@ -1,4 +1,4 @@
-"""In-memory 'core banking' data. Deliberately tiny — this stands in for a legacy admin console."""
+"""In-memory core banking data. Deliberately tiny; stands in for a legacy admin console."""
 
 from datetime import datetime
 
@@ -31,18 +31,29 @@ MEMBERS = {
         "phone": "555-762-0093",
         "address": "9 Cedar Ct, Springfield, IL 62703",
     },
+    "12345": {
+        "name": "Het Nagda",
+        "member_since": "2023-01-15",
+        "checking_balance": 8732.00,
+        "savings_balance": 1562.00,
+        "locked": False,
+        "phone": "555-410-7729",
+        "address": "56 Maple Dr, Springfield, IL 62704",
+    },
 }
 
 # member_id -> list of {id, type, balance, created_at, source, run_id}
 SUBACCOUNTS: dict[str, list[dict]] = {mid: [] for mid in MEMBERS}
 
+# member_id -> list of {id, principal, purpose, interest_rate, status, created_at, source, run_id}
+LOANS: dict[str, list[dict]] = {mid: [] for mid in MEMBERS}
+
 # member_id -> list of {timestamp, description, account, amount, balance_after, source, run_id},
 # newest first. Seed rows are historical/pre-existing data (source="seed"); anything the
-# automation creates gets a real millisecond-precision timestamp and its true source/run_id
-# (see mock_app/app.py — every write route reads X-Automation-Source / X-Run-Id off the
-# request and threads it through, so the data itself shows whether an AI reasoned its way
-# through the action live (source="discovery") or a saved capability replayed it deterministically
-# (source="replay"), not just the evidence/ logs from that run.
+# automation creates gets a real millisecond-precision timestamp and its true source/run_id.
+# Every write route reads X-Automation-Source / X-Run-Id off the request and threads it
+# through, so the data itself shows whether an AI reasoned its way through the action live
+# (source="discovery") or a saved capability replayed it deterministically (source="replay").
 TRANSACTIONS: dict[str, list[dict]] = {
     "10001": [
         {"timestamp": "2026-09-20 09:14:02.000", "description": "Grocery Mart", "account": "checking", "amount": -64.21, "balance_after": 812.44, "source": "seed", "run_id": ""},
@@ -60,10 +71,15 @@ TRANSACTIONS: dict[str, list[dict]] = {
         {"timestamp": "2026-09-12 00:05:00.000", "description": "Interest Payment", "account": "savings", "amount": 24.50, "balance_after": 9800.15, "source": "seed", "run_id": ""},
         {"timestamp": "2026-08-30 10:18:32.000", "description": "Wire In", "account": "savings", "amount": 5000.00, "balance_after": 9775.65, "source": "seed", "run_id": ""},
     ],
+    "12345": [
+        {"timestamp": "2026-09-22 09:00:00.000", "description": "Payroll Deposit", "account": "checking", "amount": 4200.00, "balance_after": 8732.00, "source": "seed", "run_id": ""},
+        {"timestamp": "2026-09-11 00:05:00.000", "description": "Interest Payment", "account": "savings", "amount": 6.02, "balance_after": 1562.00, "source": "seed", "run_id": ""},
+    ],
 }
 
 _next_subaccount_seq = 5000
 _next_transfer_seq = 7000
+_next_loan_seq = 3000
 
 
 def next_subaccount_id() -> str:
@@ -76,6 +92,12 @@ def next_transfer_id() -> str:
     global _next_transfer_seq
     _next_transfer_seq += 1
     return f"TXF-{_next_transfer_seq}"
+
+
+def next_loan_id() -> str:
+    global _next_loan_seq
+    _next_loan_seq += 1
+    return f"LN-{_next_loan_seq}"
 
 
 def _now() -> str:
@@ -113,4 +135,21 @@ def record_subaccount(
         "run_id": run_id,
     }
     SUBACCOUNTS.setdefault(member_id, []).append(entry)
+    return entry
+
+
+def record_loan(
+    member_id: str, principal: float, purpose: str, interest_rate: float, source: str = "manual", run_id: str = ""
+) -> dict:
+    entry = {
+        "id": next_loan_id(),
+        "principal": principal,
+        "purpose": purpose,
+        "interest_rate": interest_rate,
+        "status": "Active",
+        "created_at": _now(),
+        "source": source,
+        "run_id": run_id,
+    }
+    LOANS.setdefault(member_id, []).append(entry)
     return entry

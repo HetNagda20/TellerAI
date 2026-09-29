@@ -1,0 +1,37 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+<b>Loan Accounts - Member {{ member_id }} ({{ member.name }})</b>
+</td></tr>
+</table>
+<br>
+<table cellpadding="4" cellspacing="0" border="1" width="100%">
+<tr bgcolor="#c7c4bd">
+  <td><b>Loan ID</b></td>
+  <td><b>Principal</b></td>
+  <td><b>Purpose</b></td>
+  <td><b>Interest Rate</b></td>
+  <td><b>Status</b></td>
+  <td><b>Opened</b></td>
+</tr>
+{% for loan in loans %}
+<tr>
+  <td>{{ loan.id }}</td>
+  <td>${{ "%.2f"|format(loan.principal) }}</td>
+  <td>{{ loan.purpose }}</td>
+  <td>{{ "%.2f"|format(loan.interest_rate) }}%</td>
+  <td>{{ loan.status }}</td>
+  <td>{{ loan.created_at }}</td>
+</tr>
+{% endfor %}
+{% if not loans %}
+<tr><td colspan="6">No loan accounts on file.</td></tr>
+{% endif %}
+</table>
+<br>
+<a href="/loans/view">Back to Member Lookup</a>
+</body>
+</html>

@@ -4,18 +4,21 @@ capabilities.
 The discovery run only ever walks one path (the happy path a human operator
 would take). It cannot discover "what does a locked account look like" on
 its own. A reviewer who knows the target app adds that domain knowledge to
-the artifact before approving it for unattended replay — this module is a
-stand-in for that review step (see the `status: draft -> approved` field on
+the artifact before approving it for unattended replay. This module is a
+stand-in for that review step (see the status draft to approved field on
 Artifact, and REPORT.md section 8 on cuts).
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 from artifact.schema import (
     ActionType,
     BusinessOutcomeSignature,
     Checkpoint,
     CheckpointKind,
+    CommitVerification,
     LocatorCandidate,
     LocatorStrategy,
     RecoverableCondition,
@@ -47,7 +50,25 @@ _INSUFFICIENT_FUNDS = BusinessOutcomeSignature(
     description="The funding/source account does not have enough balance to cover the requested amount.",
 )
 
-_ANNOTATIONS: dict[str, tuple[list[BusinessOutcomeSignature], list[RecoverableCondition]]] = {
+# transfer-funds' commit-verification check: without a confirmation number, the best
+# generic signal available is the sender's own transaction history showing a transfer to
+# the declared recipient. Imprecise, it would also match a genuinely separate prior
+# transfer to the same recipient, but it is a real, checkable signal, not a guess. The
+# design intentionally treats "check inconclusive" and "check found nothing" as different
+# outcomes rather than trying to make this one signal perfectly precise. No equivalent is
+# declared for open-member-subaccount below: a new sub-account's own ID is server-generated
+# and unknowable in advance, so there is no comparably reliable generic signal yet for that
+# capability, better to have none than a misleading one.
+_TRANSFER_COMMIT_VERIFICATION = CommitVerification(
+    navigate_template="{base_url}/member/{member_id}/transactions",
+    detect=Checkpoint(kind=CheckpointKind.TEXT_CONTAINS, value="Transfer to {to_member_id}"),
+    description=(
+        "Checks the sending member's own transaction history for a transfer to the declared "
+        "recipient, the best generic signal available without a confirmation number."
+    ),
+)
+
+_ANNOTATIONS: dict[str, tuple[list[BusinessOutcomeSignature], list[RecoverableCondition], Optional[CommitVerification]]] = {
     "open-member-subaccount": (
         [
             BusinessOutcomeSignature(
@@ -64,6 +85,7 @@ _ANNOTATIONS: dict[str, tuple[list[BusinessOutcomeSignature], list[RecoverableCo
             _INSUFFICIENT_FUNDS,
         ],
         [_SESSION_INTERSTITIAL],
+        None,
     ),
     "transfer-funds": (
         [
@@ -76,9 +98,12 @@ _ANNOTATIONS: dict[str, tuple[list[BusinessOutcomeSignature], list[RecoverableCo
             _ACCOUNT_LOCKED,
         ],
         [],
+        _TRANSFER_COMMIT_VERIFICATION,
     ),
 }
 
 
-def annotations_for(capability_id: str) -> tuple[list[BusinessOutcomeSignature], list[RecoverableCondition]]:
-    return _ANNOTATIONS.get(capability_id, ([], []))
+def annotations_for(
+    capability_id: str,
+) -> tuple[list[BusinessOutcomeSignature], list[RecoverableCondition], Optional[CommitVerification]]:
+    return _ANNOTATIONS.get(capability_id, ([], [], None))

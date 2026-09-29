@@ -1,9 +1,0 @@
-{
-  "capability_id": "open-member-subaccount",
-  "version": "1.0.0",
-  "params": {
-    "member_id": "10001",
-    "account_type": "savings",
-    "initial_deposit": "150"
-  }
-}

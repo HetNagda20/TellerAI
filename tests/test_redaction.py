@@ -7,7 +7,7 @@ break replay forever, so recorder.py *drops* a sensitive candidate instead
 (keeping the always-present css_path/coordinates fallback); evidence is
 audit-only and never re-resolved, so a plain text substitution there is safe
 and sufficient. No banking-specific logic anywhere in this file or in the
-code it tests — the fixture is a generic "field that looks like a secret",
+code it tests, the fixture is a generic "field that looks like a secret",
 reusing guardrails/redact.py's existing, generic patterns.
 """
 

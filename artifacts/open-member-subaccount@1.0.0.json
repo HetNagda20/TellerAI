@@ -2,8 +2,8 @@
   "capability_id": "open-member-subaccount",
   "version": "1.0.0",
   "status": "draft",
-  "description": "Opens a new sub-account for an existing member and reaches the confirmation screen.",
-  "goal_template": "Open a new savings sub-account for member 10001 with a  initial deposit and reach the confirmation screen.",
+  "description": "Opens a new sub-account for an existing member with a caller-specified account type and initial deposit, and reaches the confirmation screen.",
+  "goal_template": "Open a new savings sub-account for member 10001 with a 50 dollar initial deposit and reach the confirmation screen.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
@@ -17,14 +17,21 @@
       "required": true,
       "description": "Value for member_id.",
       "example": "10001"
+    },
+    {
+      "name": "initial_deposit",
+      "type": "number",
+      "required": true,
+      "description": "Value for initial_deposit.",
+      "example": "50"
     }
   ],
   "outputs": [
     {
-      "name": "sub_account_id",
+      "name": "new_subaccount_id",
       "type": "string",
-      "description": "Value read for sub_account_id.",
-      "source_step": 11
+      "description": "Value read for new_subaccount_id.",
+      "source_step": 9
     }
   ],
   "steps": [
@@ -42,7 +49,7 @@
     {
       "index": 1,
       "action": "click",
-      "description": "Navigate to Accounts section to find option to open new sub-account",
+      "description": "Navigate to Accounts section to open a new sub-account.",
       "target": {
         "candidates": [
           {
@@ -71,7 +78,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 44,
-              "y": 44
+              "y": 45
             },
             "observed_at_record_time": false
           }
@@ -87,21 +94,21 @@
     {
       "index": 2,
       "action": "fill",
-      "description": "Enter member ID to look up their account",
+      "description": "Enter member ID to search for their accounts.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "textbox",
-              "name": "e.g. 10001"
+              "name": "e.g. {member_id}"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "e.g. 10001"
+              "text": "e.g. {member_id}"
             },
             "observed_at_record_time": false
           },
@@ -115,7 +122,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 150,
+              "x": 152,
               "y": 127
             },
             "observed_at_record_time": false
@@ -132,7 +139,7 @@
     {
       "index": 3,
       "action": "click",
-      "description": "Search for member 10001",
+      "description": "Search for member 10001's accounts.",
       "target": {
         "candidates": [
           {
@@ -160,7 +167,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 230,
+              "x": 234,
               "y": 127
             },
             "observed_at_record_time": false
@@ -177,7 +184,7 @@
     {
       "index": 4,
       "action": "click",
-      "description": "Open the new sub-account form for this member",
+      "description": "Open the new sub-account creation form for this member.",
       "target": {
         "candidates": [
           {
@@ -206,7 +213,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 154,
-              "y": 1027
+              "y": 943
             },
             "observed_at_record_time": false
           }
@@ -222,24 +229,9 @@
     {
       "index": 5,
       "action": "select",
-      "description": "Ensure account type is set to Savings",
+      "description": "Select Savings as the account type.",
       "target": {
         "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "combobox",
-              "name": "Savings\nChecking"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Savings\nChecking"
-            },
-            "observed_at_record_time": false
-          },
           {
             "strategy": "css_path",
             "value": {
@@ -267,7 +259,7 @@
     {
       "index": 6,
       "action": "fill",
-      "description": "Enter initial deposit amount; the task specifies an unspecified amount, defaulting to $0 initial deposit",
+      "description": "Set the initial deposit amount to $50.",
       "target": {
         "candidates": [
           {
@@ -280,7 +272,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 181,
+              "x": 183,
               "y": 144
             },
             "observed_at_record_time": false
@@ -288,7 +280,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "0",
+      "value_template": "{initial_deposit}",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -297,7 +289,7 @@
     {
       "index": 7,
       "action": "click",
-      "description": "Proceed to review step with the entered data",
+      "description": "Proceed to review the sub-account opening details.",
       "target": {
         "candidates": [
           {
@@ -341,83 +333,8 @@
     },
     {
       "index": 8,
-      "action": "fill",
-      "description": "Set initial deposit to minimum required $25.00",
-      "target": {
-        "candidates": [
-          {
-            "strategy": "css_path",
-            "value": {
-              "css": "table > tbody > tr:nth-of-type(2) > td:nth-of-type(2) > input"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "coordinates",
-            "value": {
-              "x": 181,
-              "y": 166
-            },
-            "observed_at_record_time": false
-          }
-        ],
-        "frame_chain": []
-      },
-      "value_template": "25",
-      "extract_as": null,
-      "checkpoint": null,
-      "risk": "safe",
-      "source": "llm"
-    },
-    {
-      "index": 9,
       "action": "click",
-      "description": "Submit the form with valid deposit amount",
-      "target": {
-        "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "button",
-              "name": "Review"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Review"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "css_path",
-            "value": {
-              "css": "table > tbody > tr:nth-of-type(4) > td > input"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "coordinates",
-            "value": {
-              "x": 48,
-              "y": 215
-            },
-            "observed_at_record_time": false
-          }
-        ],
-        "frame_chain": []
-      },
-      "value_template": null,
-      "extract_as": null,
-      "checkpoint": null,
-      "risk": "safe",
-      "source": "llm"
-    },
-    {
-      "index": 10,
-      "action": "click",
-      "description": "Confirm and open the new savings sub-account",
+      "description": "Confirm and open the new savings sub-account.",
       "target": {
         "candidates": [
           {
@@ -446,7 +363,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 97,
-              "y": 186
+              "y": 185
             },
             "observed_at_record_time": false
           }
@@ -460,23 +377,23 @@
       "source": "llm"
     },
     {
-      "index": 11,
+      "index": 9,
       "action": "read_text",
-      "description": "Read the new sub-account ID from the confirmation screen",
+      "description": "Capture the confirmed new sub-account ID for reporting.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "text",
-              "name": "SA-5035"
+              "name": "SA-{initial_deposit}28"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "SA-5035"
+              "text": "SA-{initial_deposit}28"
             },
             "observed_at_record_time": false
           },
@@ -491,7 +408,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 197,
-              "y": 134
+              "y": 133
             },
             "observed_at_record_time": false
           }
@@ -499,7 +416,7 @@
         "frame_chain": []
       },
       "value_template": null,
-      "extract_as": "sub_account_id",
+      "extract_as": "new_subaccount_id",
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
@@ -575,6 +492,6 @@
     }
   ],
   "overall_risk": "confirm",
-  "created_from_run_id": "discovery_20260924T221354Z",
-  "created_at": "2026-09-24T22:14:27.700602Z"
+  "created_from_run_id": "discovery_20260928T175834Z",
+  "created_at": "2026-09-28T17:58:52.918182Z"
 }

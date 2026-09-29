@@ -65,7 +65,7 @@ def test_record_artifact_parameterizes_fill_and_drops_uncorrelated_reads():
 def test_record_artifact_drops_unused_declared_params_and_unresolved_outputs():
     # Regression: a real run declared `account_type` as a required input (it was
     # passed via --param) even though the agent left that dropdown at its default
-    # and no step ever templated {account_type} in — and separately reported extra
+    # and no step ever templated {account_type} in, and separately reported extra
     # "outputs" that were never actually read off the page via read_text. Both used
     # to end up in the artifact's contract, which would have silently misrepresented
     # what replay can actually control or produce.
@@ -73,7 +73,7 @@ def test_record_artifact_drops_unused_declared_params_and_unresolved_outputs():
         StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
         StepLog(index=1, action="fill", rationale="enter id", ref="f0e0", element_name="e.g. 10001", value="10001", target=_target("e.g. 10001"), ok=True),
         StepLog(index=2, action="click", rationale="search", ref="f0e1", element_name="Search", target=_target("Search"), ok=True),
-        # note: no "select" step touches account_type at all — its default already matched the goal
+        # note: no "select" step touches account_type at all, its default already matched the goal
     ]
     result = DiscoveryResult(
         run_id="discovery_test",
@@ -105,7 +105,7 @@ def test_record_artifact_parameterizes_select_and_fill_together():
     open-member-subaccount@1.0.0 artifact never demonstrated account_type or
     initial_deposit as controllable (no --param value it was given ever
     literally matched what the agent typed/selected), so the recorder
-    correctly — per its own documented contract — left the select hardcoded
+    correctly, per its own documented contract, left the select hardcoded
     to a literal and dropped both from `inputs`. That left a capability whose
     CLI usage advertised account_type/initial_deposit as params while the
     artifact could never actually honor them (see PROJECT_STATE.md). This
@@ -242,3 +242,96 @@ def test_record_artifact_rejects_failed_run():
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+# -- param matching normalization (case + surrounding whitespace only) ---------
+
+def _record_single_select(recorded_value: str, declared_value: str):
+    """One select step, recorded with `recorded_value` (what the model passed
+    to the select tool, typically the option's visible label), against a
+    declared param `account`=`declared_value` (what the operator typed on the
+    CLI, typically the underlying option value)."""
+    steps = [
+        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
+        StepLog(
+            index=1, action="select", rationale="choose account", ref="f0e0", element_name="From Account:",
+            value=recorded_value, target=_target_with_css("From Account:", "select:nth-of-type(1)"), ok=True,
+        ),
+    ]
+    result = DiscoveryResult(
+        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={}, steps=steps,
+        goal="choose an account", target_url="http://127.0.0.1:8000/", started_at="t0", ended_at="t1",
+        evidence_dir="/tmp/evidence_test",
+    )
+    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
+    artifact = record_artifact(result, "pick-account", "desc", {"account": declared_value}, target_app)
+    select_step = next(s for s in artifact.steps if s.action == ActionType.SELECT)
+    return select_step.value_template, {i.name for i in artifact.inputs}
+
+
+def test_param_match_exact_string_still_matches():
+    template, inputs = _record_single_select("checking", "checking")
+    assert template == "{account}"
+    assert inputs == {"account"}
+
+
+def test_param_match_is_case_insensitive():
+    for recorded, declared in [("Checking", "checking"), ("Savings", "savings"), ("checking", "Checking")]:
+        template, inputs = _record_single_select(recorded, declared)
+        assert template == "{account}", (recorded, declared)
+        assert inputs == {"account"}, (recorded, declared)
+
+
+def test_param_match_ignores_surrounding_whitespace():
+    for recorded, declared in [(" Checking ", "checking"), ("Checking", "  checking\t"), ("Checking\n", "checking")]:
+        template, inputs = _record_single_select(recorded, declared)
+        assert template == "{account}", (recorded, declared)
+        assert inputs == {"account"}, (recorded, declared)
+
+
+def test_param_match_rejects_genuinely_different_strings():
+    # different word, a substring of the recorded value, and interior whitespace
+    # (only *surrounding* whitespace is normalized) must all stay unmatched
+    for recorded, declared in [("Savings", "checking"), ("Checking", "check"), ("Checking Plus", "checking"), ("Check ing", "checking")]:
+        template, inputs = _record_single_select(recorded, declared)
+        assert template == recorded, (recorded, declared)
+        assert inputs == set(), (recorded, declared)
+
+
+def test_param_match_leaves_unrelated_values_literal():
+    steps = [
+        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
+        StepLog(index=1, action="fill", rationale="enter id", ref="f0e0", element_name="Member", value="10001", target=_target("Member"), ok=True),
+        StepLog(index=2, action="fill", rationale="enter memo", ref="f0e1", element_name="Memo", value="Rent", target=_target("Memo"), ok=True),
+    ]
+    result = DiscoveryResult(
+        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={}, steps=steps,
+        goal="g", target_url="http://127.0.0.1:8000/", started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
+    )
+    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
+    artifact = record_artifact(result, "x", "desc", {"member_id": "10001", "account": "checking"}, target_app)
+
+    fills = {s.description: s.value_template for s in artifact.steps if s.action == ActionType.FILL}
+    assert fills["enter id"] == "{member_id}"
+    assert fills["enter memo"] == "Rent"
+    assert {i.name for i in artifact.inputs} == {"member_id"}
+
+
+def test_param_match_normalization_keeps_two_same_valued_controls_distinct():
+    steps = [
+        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
+        StepLog(index=1, action="select", rationale="from", ref="a", element_name="From Account:", value="Checking",
+                target=_target_with_css("Account", "tr:nth-of-type(1) > select"), ok=True),
+        StepLog(index=2, action="select", rationale="to", ref="b", element_name="To Account:", value="Checking",
+                target=_target_with_css("Account", "tr:nth-of-type(3) > select"), ok=True),
+    ]
+    result = DiscoveryResult(
+        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={}, steps=steps,
+        goal="g", target_url="http://127.0.0.1:8000/", started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
+    )
+    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
+    artifact = record_artifact(result, "x", "desc", {"from_account": "checking", "to_account": "checking"}, target_app)
+
+    selects = [s for s in artifact.steps if s.action == ActionType.SELECT]
+    assert [s.value_template for s in selects] == ["{from_account}", "{to_account}"]
+    assert {i.name for i in artifact.inputs} == {"from_account", "to_account"}

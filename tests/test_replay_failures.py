@@ -1,6 +1,6 @@
 """Replay failure semantics: bounded transient-timeout retry (requirement 4),
 structured target-resolution failure (requirement 5), and the replay HITL
-boundary — operational recovery only, never teaching (requirement 6).
+boundary, operational recovery only, never teaching (requirement 6).
 
 Deliberately no LLM anywhere in this file, including in what's being tested:
 replay must never call one to repair a failure. Where a real timeout is
@@ -113,9 +113,9 @@ def test_unresolvable_target_produces_structured_hard_failure_without_retry():
 @pytest.mark.skipif(not _mock_app_up(), reason="mock app is not running at 127.0.0.1:8000")
 def test_full_replay_reports_structured_failure_evidence_for_target_mismatch():
     """End-to-end: an artifact whose one step's locator strategies are all
-    wrong (simulating drift — the recorded target no longer matches this
+    wrong (simulating drift, the recorded target no longer matches this
     page) produces a hard_failure carrying step index, action, expected
-    candidates tried, and observed page state — not a crash, not an LLM call.
+    candidates tried, and observed page state, not a crash, not an LLM call.
     """
     bogus_target = Target(candidates=[LocatorCandidate(strategy=LocatorStrategy.CSS_PATH, value={"css": "#totally-not-a-real-selector"})])
     artifact = Artifact(
@@ -149,27 +149,40 @@ def test_full_replay_reports_structured_failure_evidence_for_target_mismatch():
 class _RecoveryOnlyOperator:
     """Simulates a human doing something real to fix an operational problem
     (dismissing an interstitial) without that action ever being captured or
-    fed back into the artifact — replay has no GestureController, no capture
+    fed back into the artifact, replay has no GestureController, no capture
     mechanism at all, so there is nothing here that could teach it even if
     this tried to.
+
+    `take_control_calls`/`urls_seen` exist purely so tests can prove exactly
+    how many times this operator was actually invoked, and what page it saw
+    at the time, not part of the operator protocol itself (HandoffSession
+    never reads them).
     """
 
     def __init__(self, page, resume=True):
         self.page = page
         self.resume = resume
+        self.take_control_calls = 0
+        self.urls_seen: list[str] = []
 
     def confirm(self, request: InterventionRequest):
         return True, "n/a"
 
     def take_control(self, request: InterventionRequest):
+        self.take_control_calls += 1
+        self.urls_seen.append(self.page.url)
         if self.resume:
             self.page.get_by_role("button", name="Continue").click()
-        return "dismissed the interstitial manually", self.resume, []  # no captured_actions, ever
+            # Same wait the real declared-recovery path uses (replay/executor.py's
+            # _execute_recovery) before the retried step tries to resolve anything,
+            # without it, the retry can race the interstitial's own navigation.
+            self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+        return "dismissed the interstitial manually", self.resume, False, []  # no captured_actions, ever
 
 
 def _subaccount_artifact_without_declared_interstitial_recovery() -> Artifact:
     """Same shape as the real open-member-subaccount capability, but with
-    recoverable_conditions deliberately left empty — so member 20001's known
+    recoverable_conditions deliberately left empty, so member 20001's known
     session-renewal interstitial is NOT auto-handled, and hits the form step
     as a genuine hard_failure instead. That's what escalate_on_failure exists
     for: an operational problem the artifact itself doesn't know how to
@@ -208,75 +221,76 @@ def _subaccount_artifact_without_declared_interstitial_recovery() -> Artifact:
     )
 
 
-@pytest.mark.skip(
-    reason=(
-        "Test-harness bug, not a bug in replay/session: the sync_playwright() monkeypatch "
-        "reuses a pre-made `browser`, but replay_artifact() still calls browser.new_page() "
-        "internally, so the operator's `page` reference ends up bound to a different Page "
-        "object than the one replay actually drives, and get_by_role('Continue') times out "
-        "against the wrong page. The retry logic itself (replay/executor.py's `if record.resume:` "
-        "block) is exercised indirectly by test_escalate_on_failure_declining_resume_ends_in_"
-        "hard_failure_no_retry below and by manual verification; this test needs a real seam "
-        "for injecting a HandoffSession operator into replay_artifact (e.g. an optional "
-        "parameter) rather than monkeypatching sync_playwright, which is out of scope for this "
-        "patch per the 'no large redesign' constraint."
-    )
-)
+@pytest.mark.skipif(not _mock_app_up(), reason="mock app is not running at 127.0.0.1:8000")
 def test_escalate_on_failure_bounded_operational_retry_succeeds():
     """The fix for the previously-dead `record.resume`: a human reporting they
     fixed something operational gets exactly one more attempt at the SAME
-    step, on the SAME page — no LLM, no new step in the artifact.
+    step, on the SAME page, no LLM, no new step in the artifact.
+
+    Previously skipped: the old version of this test built its own separate
+    Page and monkeypatched sync_playwright/HandoffSession.__init__ to smuggle
+    an operator bound to THAT page into replay_artifact(), which still calls
+    browser.new_page() internally, so the operator's clicks landed on a page
+    nobody was actually replaying against, and the retry always timed out.
+    This version uses replay_artifact()'s operator_factory seam instead: the
+    factory is called with the exact live Page replay itself creates, so the
+    operator can act on it directly, no monkeypatching of Playwright/browser
+    construction anywhere in this test.
     """
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        page = browser.new_page()
+    artifact = _subaccount_artifact_without_declared_interstitial_recovery()
+    before = artifact.model_dump_json()
 
-        operator = _RecoveryOnlyOperator(page, resume=True)
+    operators: list[_RecoveryOnlyOperator] = []
 
-        # replay_artifact manages its own browser; to inject our operator we
-        # call the pieces it would call directly rather than duplicating its
-        # internals — this is the smallest way to test the real code path.
-        import replay.executor as re_mod
-        from handoff.session import HandoffSession
+    def _make_operator(page):
+        op = _RecoveryOnlyOperator(page, resume=True)
+        operators.append(op)
+        return op
 
-        real_sync_playwright = re_mod.sync_playwright
+    result = replay_artifact(
+        artifact,
+        {"member_id": "20001", "initial_deposit": "50"},
+        headless=True,
+        escalate_on_failure=True,
+        operator_factory=_make_operator,
+    )
 
-        class _ReuseOurBrowser:
-            def __enter__(self):
-                class _PW:
-                    chromium = type("C", (), {"launch": staticmethod(lambda headless: browser)})()
-                return _PW()
-
-            def __exit__(self, *a):
-                pass
-
-        browser.close = lambda: None  # keep our already-open browser alive across the fake context manager
-        re_mod.sync_playwright = lambda: _ReuseOurBrowser()
-        orig_handoff_init = HandoffSession.__init__
-
-        def _patched_init(self, *a, **kw):
-            kw["operator"] = operator
-            orig_handoff_init(self, *a, **kw)
-
-        HandoffSession.__init__ = _patched_init
-        try:
-            artifact = _subaccount_artifact_without_declared_interstitial_recovery()
-            result = replay_artifact(
-                artifact, {"member_id": "20001", "initial_deposit": "50"}, headless=True, escalate_on_failure=True
-            )
-        finally:
-            re_mod.sync_playwright = real_sync_playwright
-            HandoffSession.__init__ = orig_handoff_init
-            page.context.browser.close()
-
+    # G: replay succeeded once the human dismissed the interstitial.
     assert result.kind == "success"
-    assert artifact.recoverable_conditions == []  # the artifact itself was never touched
+    assert result.steps_executed == len(artifact.steps) == 5
+
+    # E: the human's action happened on the SAME live session. This is not just
+    # asserted structurally (the factory was handed replay's own Page) but
+    # proven causally: if take_control() had acted on a different page, the
+    # interstitial would still be showing on replay's real page and the
+    # retried step would fail exactly as it did before this seam existed
+    # (see the skip reason this test used to carry), instead it succeeded.
+    assert len(operators) == 1
+    operator = operators[0]
+    assert operator.take_control_calls == 1, "expected exactly one operational-recovery escalation"
+    assert len(operator.urls_seen) == 1
+    assert "/new-subaccount" in operator.urls_seen[0], (
+        "operator must have been looking at the real in-flight replay page "
+        "(the sub-account form flow), not a blank or unrelated one"
+    )
+
+    # F: the SAME failed step (index 4) was retried exactly once, the first
+    # attempt fails at target resolution (interstitial showing) before ever
+    # appending to strategy_log, so exactly one successful resolution of step 4
+    # in the log means exactly one (successful) retry happened, not zero, not more.
+    step_4_entries = [e for e in result.strategy_log if e.step_index == 4]
+    assert len(step_4_entries) == 1, f"expected exactly one successful resolution of step 4, got {len(step_4_entries)}"
+    assert [e.step_index for e in result.strategy_log] == [0, 1, 2, 3, 4], "every step ran exactly once in order"
+
+    # H: the artifact was never touched, operational recovery only, never learning/repair.
+    assert artifact.model_dump_json() == before
+    assert artifact.recoverable_conditions == []
 
 
 @pytest.mark.skipif(not _mock_app_up(), reason="mock app is not running at 127.0.0.1:8000")
 def test_escalate_on_failure_declining_resume_ends_in_hard_failure_no_retry():
     artifact = _subaccount_artifact_without_declared_interstitial_recovery()
-    # no escalate_on_failure at all: the simplest, most common case — a failure
+    # no escalate_on_failure at all: the simplest, most common case, a failure
     # is just a failure, reported once, no human involved.
     result = replay_artifact(artifact, {"member_id": "20001", "initial_deposit": "50"}, headless=True, escalate_on_failure=False)
 
@@ -346,7 +360,7 @@ def test_replay_param_validation_does_not_mutate_the_artifact():
 
 @pytest.mark.skipif(not _mock_app_up(), reason="mock app is not running at 127.0.0.1:8000")
 def test_replay_never_mutates_the_artifact_object():
-    business_outcomes, recoverable = annotations_for("open-member-subaccount")
+    business_outcomes, recoverable, commit_verification = annotations_for("open-member-subaccount")
     member_id_box = Target(candidates=[LocatorCandidate(strategy=LocatorStrategy.CSS_PATH, value={"css": "input[name=member_id]"})])
     search_button = Target(candidates=[LocatorCandidate(strategy=LocatorStrategy.ROLE_NAME, value={"role": "button", "name": "Search"})])
     artifact = Artifact(
@@ -365,6 +379,7 @@ def test_replay_never_mutates_the_artifact_object():
         final_checkpoint=Checkpoint(kind=CheckpointKind.URL_CONTAINS, value="/member/{member_id}"),
         business_outcomes=business_outcomes,
         recoverable_conditions=recoverable,
+        commit_verification=commit_verification,
         created_from_run_id="hand_built_for_tests",
     )
     before = artifact.model_dump_json()

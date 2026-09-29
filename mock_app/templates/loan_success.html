@@ -1,0 +1,19 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="8" cellspacing="0" border="1" bgcolor="#e3f2d9">
+<tr><td>
+<b>Loan Account Created</b><br><br>
+Loan ID: <b>{{ loan.id }}</b><br>
+Member: {{ member_id }} ({{ member.name }})<br>
+Principal: ${{ "%.2f"|format(loan.principal) }}<br>
+Purpose: {{ loan.purpose }}<br>
+Interest Rate: {{ "%.2f"|format(loan.interest_rate) }}%<br>
+Status: {{ loan.status }}
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}/loans">Back to Loan Accounts</a>
+</body>
+</html>

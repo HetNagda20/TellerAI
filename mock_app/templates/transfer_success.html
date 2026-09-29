@@ -6,8 +6,8 @@
 <tr><td>
 <b>Transfer completed.</b><br><br>
 Confirmation Number: <b>{{ confirmation_number }}</b><br>
-From: Member {{ member_id }} ({{ member.name }}) &mdash; {{ from_account|capitalize }}<br>
-To: Member {{ to_member_id }} ({{ to_member.name }}) &mdash; {{ to_account|capitalize }}<br>
+From: Member {{ member_id }} ({{ member.name }}) - {{from_account|capitalize }}<br>
+To: Member {{ to_member_id }} ({{ to_member.name }}) - {{to_account|capitalize }}<br>
 Amount: ${{ "%.2f"|format(amount) }}
 </td></tr>
 </table>

@@ -8,5 +8,6 @@ venv/
 node_modules/
 .pytest_cache/
 *.log
+logs/
 teller.db
 .claude/

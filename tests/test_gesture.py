@@ -4,7 +4,7 @@ model asking for confirmation or calling give_up.
 
 Click targets are deliberately inert (about:blank / a bare data: URL), not
 the real mock app. An earlier version of this test clicked "empty-looking"
-coordinates on the mock app's actual pages — which, given its compact
+coordinates on the mock app's actual pages, which, given its compact
 table layout, sometimes landed on a real link and triggered a genuine
 navigation, racing the detection signal against context teardown. That was
 a test-design bug, not a bug in the mechanism; seemed worth leaving this
@@ -79,7 +79,7 @@ def test_pause_and_wait_for_resume_captures_note():
         ctrl = GestureController(page)
 
         # Simulate the later resume-click from the page's own JS (a poller),
-        # not a second Python thread — Playwright's sync API isn't thread-safe.
+        # not a second Python thread, Playwright's sync API isn't thread-safe.
         page.evaluate(
             """
             (function poll() {
@@ -93,9 +93,11 @@ def test_pause_and_wait_for_resume_captures_note():
             })();
             """
         )
-        note = ctrl.pause_and_wait_for_resume(poll_interval_s=0.1, timeout_s=10)
+        note, resume, restart = ctrl.pause_and_wait_for_resume(poll_interval_s=0.1, timeout_s=10)
 
         assert note == "test note"
+        assert resume is True
+        assert restart is False
         assert page.locator("#__pw_pause_banner").count() == 0
         browser.close()
 
@@ -103,10 +105,10 @@ def test_pause_and_wait_for_resume_captures_note():
 def test_clicking_resume_button_does_not_retrigger_detection():
     # Regression: a real run escalated 22 times in under 25 seconds, because
     # clicking "Resume Automation" is itself a mousedown, and the original
-    # listener didn't exclude clicks on its own banner — so every resume
+    # listener didn't exclude clicks on its own banner, so every resume
     # immediately re-triggered another "human wants control" signal. The
     # earlier version of this test used a synthetic element.click() to
-    # simulate the resume click, which — per the DOM spec — fires only a
+    # simulate the resume click, which, per the DOM spec, fires only a
     # `click` event, never `mousedown`, so it could never have caught this;
     # this one uses a real dispatched mouse click (mousedown + mouseup +
     # click, exactly what a physical click produces) at the button's actual
@@ -194,7 +196,7 @@ def test_clicking_confirm_banner_does_not_retrigger_detection():
 def test_cli_operator_confirm_resolves_via_gesture_banner():
     # End-to-end: _CliOperator.confirm() races the terminal prompt against the
     # on-page banner. This exercises the banner side without needing real
-    # stdin — the banner resolves first, so the stdin-reading daemon thread is
+    # stdin, the banner resolves first, so the stdin-reading daemon thread is
     # left abandoned (a documented, accepted limitation; see handoff/session.py).
     from handoff.session import InterventionRequest, _CliOperator
 

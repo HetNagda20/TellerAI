@@ -1,5 +1,5 @@
 """Integration verification for the re-recorded open-member-subaccount@1.0.1
-artifact — the actual discovery-produced capability (not a hand-built stand-in
+artifact, the actual discovery-produced capability (not a hand-built stand-in
 like test_replay_integration.py uses), loaded the same way the CLI's `replay`
 command does.
 
@@ -9,7 +9,7 @@ account_type/initial_deposit as inputs and hardcoded the deposit fill to a
 literal, so any --param value for them was silently ignored. @1.0.1 was
 re-recorded from a discovery run that explicitly demonstrated all three
 params, and every replay of it below runs the real recorded flow with real
-supplied params through the unmodified replay engine — no special-casing of
+supplied params through the unmodified replay engine, no special-casing of
 these particular values anywhere in replay/executor.py.
 
 Requires the mock app running at http://127.0.0.1:8000 (see README.md).
@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from artifact.schema import ArtifactStatus
 from artifact.store import load_path
 from replay.executor import replay_artifact
 
@@ -40,7 +41,9 @@ pytestmark = pytest.mark.skipif(not _mock_app_up(), reason="mock app is not runn
 
 
 def _artifact():
-    return load_path(ARTIFACT_PATH)
+    # Approved in-memory: these tests cover replay outcomes, not the risky-step approval
+    # gate (tests/test_replay_risk_gate.py), and the saved file's status is the reviewer's.
+    return load_path(ARTIFACT_PATH).model_copy(update={"status": ArtifactStatus.APPROVED})
 
 
 def test_artifact_declares_all_three_demonstrated_inputs():
@@ -64,7 +67,10 @@ def test_valid_deposit_of_100_succeeds():
         headless=True,
     )
     assert result.kind == "success"
-    assert result.outputs["new_subaccount_id"].startswith("SA-")
+    # The artifact's own declared output name is the contract (see the
+    # fetch-account-balance precedent this session) -- this discovery run's
+    # LLM named it "sub_account_id", not "new_subaccount_id".
+    assert result.outputs["sub_account_id"].startswith("SA-")
 
 
 def test_deposit_below_minimum_is_a_business_outcome_not_a_crash():
@@ -80,7 +86,7 @@ def test_deposit_below_minimum_is_a_business_outcome_not_a_crash():
 def test_unknown_member_is_a_business_outcome_not_a_crash():
     result = replay_artifact(
         _artifact(),
-        {"member_id": "12345", "account_type": "Savings", "initial_deposit": "100"},
+        {"member_id": "99999", "account_type": "Savings", "initial_deposit": "100"},
         headless=True,
     )
     assert result.kind == "business_outcome"

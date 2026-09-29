@@ -13,7 +13,7 @@ def test_classify_click_flags_irreversible_verbs():
 
 def test_classify_click_does_not_flag_a_review_step_that_merely_mentions_the_domain_verb():
     # Regression: "Review Transfer" (a safe, reversible step before "Confirm Transfer")
-    # was previously flagged as risky by a bare `\btransfer\b` pattern — found during
+    # was previously flagged as risky by a bare `\btransfer\b` pattern, found during
     # a real discovery run, where it produced an unplanned confirmation prompt.
     assert classify_click("Review Transfer") == "safe"
     assert classify_click("Review") == "safe"

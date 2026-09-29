@@ -1,0 +1,18 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="6" cellspacing="0" border="0">
+    <tr><td><b>{{ section_title }}</b></td></tr>
+    {% for choice in choices %}
+    <tr>
+      <td><a href="{{ choice.href }}">{{ choice.label }}</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -1,11 +1,11 @@
 """Discovery-time human-in-the-loop: verifies a human's action during an
 escalation is captured as a real, replayable Step (source="human_intervention"),
-not a free-text note — see handoff/session.py, handoff/gesture.py, and
+not a free-text note, see handoff/session.py, handoff/gesture.py, and
 agent/executor.py's record_human_action.
 
 No LLM is used here. HandoffSession's operator is a small scripted fake
 standing in for a person, driving the SAME real Playwright page the
-discovery loop would use — that's what these tests actually exercise: the
+discovery loop would use, that's what these tests actually exercise: the
 capture mechanism, the LLM_CONTROL/HUMAN_CONTROL state machine, and the
 recorder's handling of a step sequence with mixed sources.
 """
@@ -59,7 +59,7 @@ class _ScriptedHumanOperator:
         for act in self._actions:
             act()
         captured = self.gesture.stop_capturing()
-        return self.note, self.resume, captured
+        return self.note, self.resume, False, captured
 
 
 def test_stuck_escalation_uses_same_session_and_captures_structured_action(tmp_path):
@@ -89,7 +89,7 @@ def test_stuck_escalation_uses_same_session_and_captures_structured_action(tmp_p
             )
         )
 
-        # B: same session, not a new browser — the click really happened on `page`.
+        # B: same session, not a new browser, the click really happened on `page`.
         assert clicked["done"]
         assert "/accounts" in page.url
 

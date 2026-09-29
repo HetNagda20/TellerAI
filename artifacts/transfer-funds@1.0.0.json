@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "status": "draft",
   "description": "Transfers funds from one member's account to another member's account and reaches the confirmation screen.",
-  "goal_template": "Transfer exactly $100 from member 10001's checking account to member 10002's checking account, then reach the confirmation screen.",
+  "goal_template": "Transfer $10 from member 10001's checking account to member 20001's checking account and reach the confirmation screen.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
@@ -19,33 +19,32 @@
       "example": "10001"
     },
     {
-      "name": "from_account",
-      "type": "string",
-      "required": true,
-      "description": "Value for from_account.",
-      "example": "Checking"
-    },
-    {
       "name": "to_member_id",
       "type": "number",
       "required": true,
       "description": "Value for to_member_id.",
-      "example": "10002"
+      "example": "20001"
     },
     {
       "name": "amount",
       "type": "number",
       "required": true,
       "description": "Value for amount.",
-      "example": "100"
+      "example": "10"
     }
   ],
   "outputs": [
     {
-      "name": "transaction_id",
+      "name": "confirmation_number",
       "type": "string",
-      "description": "Value read for transaction_id.",
+      "description": "Value read for confirmation_number.",
       "source_step": 10
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "description": "Value read for status.",
+      "source_step": 11
     }
   ],
   "steps": [
@@ -63,7 +62,7 @@
     {
       "index": 1,
       "action": "click",
-      "description": "Navigate to Transfers section to perform the fund transfer.",
+      "description": "Navigate to Transfers page to initiate the transfer between members.",
       "target": {
         "candidates": [
           {
@@ -108,21 +107,21 @@
     {
       "index": 2,
       "action": "fill",
-      "description": "Enter member ID 10001 to look up their accounts for the transfer.",
+      "description": "Enter the source member ID to look up their accounts.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "textbox",
-              "name": "e.g. 10001"
+              "name": "e.g. {member_id}"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "e.g. 10001"
+              "text": "e.g. {member_id}"
             },
             "observed_at_record_time": false
           },
@@ -198,24 +197,9 @@
     {
       "index": 4,
       "action": "select",
-      "description": "Select checking as the source account for member 10001.",
+      "description": "Select checking as the source account.",
       "target": {
         "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "combobox",
-              "name": "Checking\nSavings"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Checking\nSavings"
-            },
-            "observed_at_record_time": false
-          },
           {
             "strategy": "css_path",
             "value": {
@@ -234,7 +218,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "{from_account}",
+      "value_template": "Checking",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -243,7 +227,7 @@
     {
       "index": 5,
       "action": "fill",
-      "description": "Enter the recipient member ID 10002.",
+      "description": "Enter the target member ID for the transfer.",
       "target": {
         "candidates": [
           {
@@ -273,24 +257,9 @@
     {
       "index": 6,
       "action": "select",
-      "description": "Select checking as the destination account for member 10002.",
+      "description": "Select checking as the destination account.",
       "target": {
         "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "combobox",
-              "name": "Checking\nSavings"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Checking\nSavings"
-            },
-            "observed_at_record_time": false
-          },
           {
             "strategy": "css_path",
             "value": {
@@ -309,7 +278,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "{from_account}",
+      "value_template": "Checking",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -318,7 +287,7 @@
     {
       "index": 7,
       "action": "fill",
-      "description": "Enter the transfer amount of $100.",
+      "description": "Enter the transfer amount of $10.",
       "target": {
         "candidates": [
           {
@@ -348,7 +317,7 @@
     {
       "index": 8,
       "action": "click",
-      "description": "Proceed to review the transfer details before confirming.",
+      "description": "Proceed to review the transfer details.",
       "target": {
         "candidates": [
           {
@@ -393,7 +362,7 @@
     {
       "index": 9,
       "action": "click",
-      "description": "Confirm the transfer to complete it and reach the confirmation screen.",
+      "description": "Confirm the transfer to complete the process and reach the confirmation screen.",
       "target": {
         "candidates": [
           {
@@ -438,21 +407,21 @@
     {
       "index": 10,
       "action": "read_text",
-      "description": "Read the confirmation transaction ID to include in the final report.",
+      "description": "Read the confirmation transaction reference number for the record.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "text",
-              "name": "TXF-7001"
+              "name": "TXF-7032"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "TXF-7001"
+              "text": "TXF-7032"
             },
             "observed_at_record_time": false
           },
@@ -475,7 +444,52 @@
         "frame_chain": []
       },
       "value_template": null,
-      "extract_as": "transaction_id",
+      "extract_as": "confirmation_number",
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 11,
+      "action": "read_text",
+      "description": "Read the exact confirmation status text element.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "text",
+              "name": "Transfer completed."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Transfer completed."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(3) > tbody > tr > td > b:nth-of-type(1)"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 87,
+              "y": 97
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": "status",
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
@@ -516,7 +530,16 @@
     }
   ],
   "recoverable_conditions": [],
+  "commit_verification": {
+    "navigate_template": "{base_url}/member/{member_id}/transactions",
+    "detect": {
+      "kind": "text_contains",
+      "value": "Transfer to {to_member_id}",
+      "target": null
+    },
+    "description": "Checks the sending member's own transaction history for a transfer to the declared recipient — the best generic signal available without a confirmation number."
+  },
   "overall_risk": "confirm",
-  "created_from_run_id": "discovery_20260925T214601Z",
-  "created_at": "2026-09-25T21:46:20.853489Z"
+  "created_from_run_id": "discovery_20260928T190754Z",
+  "created_at": "2026-09-28T19:08:18.077398Z"
 }

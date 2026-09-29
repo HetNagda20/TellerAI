@@ -60,7 +60,7 @@ def _build_artifact() -> Artifact:
         Step(index=6, action=ActionType.CLICK, description="Confirm the transfer.", target=_role("button", "Confirm Transfer"), risk="confirm"),
         Step(index=7, action=ActionType.READ_TEXT, description="Read confirmation number.", target=_css("td b:nth-of-type(2)"), extract_as="confirmation_number"),
     ]
-    business_outcomes, recoverable = annotations_for("transfer-funds")
+    business_outcomes, recoverable, commit_verification = annotations_for("transfer-funds")
     return Artifact(
         capability_id="transfer-funds",
         version="test",
@@ -80,6 +80,7 @@ def _build_artifact() -> Artifact:
         final_checkpoint=Checkpoint(kind=CheckpointKind.URL_CONTAINS, value="/transfer/confirm"),
         business_outcomes=business_outcomes,
         recoverable_conditions=recoverable,
+        commit_verification=commit_verification,
         created_from_run_id="hand_built_for_tests",
     )
 

@@ -1,0 +1,26 @@
+<html>
+<head><title>CU Servicing Console</title></head>
+<body bgcolor="#d6d3ce">
+{% include "_tabs.html" %}
+<table cellpadding="4" cellspacing="0" border="1">
+<tr><td>
+  <table cellpadding="2" cellspacing="0" border="0">
+    <tr><td colspan="2"><b>Confirm New Loan - Member {{ member_id }} ({{ member.name }})</b></td></tr>
+    <tr><td>Loan Amount:</td><td>${{ "%.2f"|format(loan_amount) }}</td></tr>
+    <tr><td>Loan Purpose:</td><td>{{ loan_purpose }}</td></tr>
+    <tr><td>Interest Rate:</td><td>{{ "%.2f"|format(interest_rate) }}%</td></tr>
+    <tr><td colspan="2">
+      <form method="post" action="/member/{{ member_id }}/loans/new/confirm">
+        <input type="hidden" name="loan_amount" value="{{ loan_amount }}">
+        <input type="hidden" name="loan_purpose" value="{{ loan_purpose }}">
+        <input type="hidden" name="interest_rate" value="{{ interest_rate }}">
+        <input type="submit" value="Confirm &amp; Create Loan">
+      </form>
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+<br>
+<a href="/member/{{ member_id }}/loans/new">Back to Form</a>
+</body>
+</html>

@@ -1,7 +1,7 @@
 """Explicit, configurable allowlist of what the agent may act on.
 
 Loaded from config/allowlist.json so it can be reviewed/edited without
-touching code — this is a policy artifact, not a code path.
+touching code. This is a policy artifact, not a code path.
 """
 
 from __future__ import annotations
@@ -33,7 +33,13 @@ class Allowlist:
         host = parsed.hostname or ""
         if host not in self.allowed_domains:
             return False
-        return any(parsed.path.startswith(p) for p in self.allowed_path_prefixes)
+        # A bare-host URL (no trailing slash, e.g. "http://host:port") parses to an
+        # empty path, not "/", which then never matches a "/" prefix even though
+        # that is exactly the root path a browser would actually load. A real
+        # discovery run got blocked 4 times navigating to a target URL with no
+        # trailing slash before self-correcting. Treat "" the same as "/" here.
+        path = parsed.path or "/"
+        return any(path.startswith(p) for p in self.allowed_path_prefixes)
 
     def action_allowed(self, action: str) -> bool:
         return action in self.allowed_actions

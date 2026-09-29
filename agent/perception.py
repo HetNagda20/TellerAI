@@ -11,7 +11,7 @@ accessibility tree gives you (a) but not a clean path to (b).
 Name/role computation intentionally mirrors what a sighted operator (or a
 screen reader) would infer from an ugly, table-based, no-test-id page:
 label associations, placeholders, button values, and finally trimmed inner
-text — never element ids or class names, because the target app doesn't
+text. Never element ids or class names, because the target app does not
 reliably have them.
 """
 
@@ -33,8 +33,8 @@ _SNAPSHOT_JS = r"""
   // something the browser's own accessibility engine would compute for this
   // element (safe to search for via role+name, or by its own text) versus a
   // borrowed guess (a neighboring label cell) that happens to describe this
-  // element but is NOT this element's text — searching the page for that
-  // text would find the *label*, not the input. Only 'inferred_label' needs
+  // element but is NOT this element's text. Searching the page for that
+  // text would find the label, not the input. Only 'inferred_label' needs
   // this distinction; every other source is part of the real accname chain.
   function accessibleName(el) {
     const aria = el.getAttribute('aria-label');
@@ -64,7 +64,7 @@ _SNAPSHOT_JS = r"""
     }
     // Last resort: legacy table-layout forms often put the label in the
     // preceding <td> of the same row with no programmatic association at
-    // all. A human operator reads it visually; we approximate that — but
+    // all. A human operator reads it visually; we approximate that, but
     // flag it as borrowed, since it is NOT this element's own text.
     const row = el.closest('tr');
     if (row) {
@@ -177,10 +177,10 @@ _SNAPSHOT_JS = r"""
 """
 
 
-# Sources the real browser accessible-name computation would also produce —
+# Sources the real browser accessible-name computation would also produce,
 # safe to search for via get_by_role(name=...) or get_by_text(...). Anything
 # else (currently just 'inferred_label') is a borrowed guess: useful to show
-# a human/LLM, unsafe to use as a search key since it's another element's text.
+# a human/LLM, unsafe to use as a search key since it is another element's text.
 _TRUSTWORTHY_NAME_SOURCES = {"aria", "label", "placeholder", "value", "own_text"}
 
 
@@ -293,8 +293,8 @@ def snapshot(page: Page) -> Snapshot:
         # interactive element before any text leaf, which would otherwise put
         # e.g. both "Checking/Savings" dropdowns of a transfer form back to
         # back with their "From Account:"/"To Account:" labels many lines
-        # away. Sorting by (row, x) — bucketing y so same-row elements don't
-        # get separated by sub-pixel jitter — reproduces how a human actually
+        # away. Sorting by (row, x), bucketing y so same-row elements do not
+        # get separated by sub-pixel jitter, reproduces how a human actually
         # scans a table-laid-out page, so a label always precedes its field.
         nodes_in_reading_order = sorted(
             data["nodes"], key=lambda n: (round(n["bbox"]["y"] / 12), n["bbox"]["x"])
