@@ -1,21 +1,5 @@
-"""Lets a human take control by directly clicking or typing in the live
-browser window, instead of requesting control through a side channel. This
-is the natural complement to the file-based PAUSE_REQUESTED signal in
-agent/loop.py: both end up at the same control-transfer bookkeeping in
-handoff/session.py, this one just detects the human is already here.
-
-Detection: a real human's click and a Playwright-dispatched click produce
-identical DOM events, so there is no reliable "was this a human" signal on
-the event itself. What is reliable is knowing when we are not currently
-mid-dispatch: a small window.__pwActive flag, toggled around every action
-the executor issues (see agent/executor.py), is checked by an injected
-listener before it reports a mousedown/keydown back to Python. Anything
-that fires while the flag is false did not come from us.
-
-Detection is installed on the main frame only. The mock app's one nested
-frame (the balance panel) is read-only display, not a plausible place for a
-human to intervene.
-"""
+"""Lets a human take control by clicking or typing in the live browser. An injected listener reports
+events that happen while we are not mid-dispatch. Main frame only."""
 
 from __future__ import annotations
 
@@ -35,10 +19,8 @@ _INIT_SCRIPT = r"""
   window.__pwActive = false;
   const signal = (e) => {
     if (window.__pwActive) return;
-    // Interacting with our own UI (the pause banner's Resume button, the
-    // confirm banner's Approve/Deny buttons) is the human using the control
-    // mechanism, not taking over the underlying page. Without this check,
-    // clicking Resume is itself a mousedown that re-triggers detection.
+    // Clicking our own UI (Resume, Approve, Deny) is using the control mechanism, not taking
+    // over the page. Without this check, clicking Resume would re-trigger detection.
     if (e.target && e.target.closest && e.target.closest('.__pw_ui')) return;
     if (window.__pwHumanSignal) window.__pwHumanSignal();
   };
@@ -136,11 +118,8 @@ _SHOW_BANNER_JS = r"""
 
 _HIDE_BANNER_JS = "document.getElementById('__pw_pause_banner')?.remove();"
 
-# Same idea as the pause banner, for the other escalation path: a risky or
-# irreversible action needs a yes/no before it happens. Approve/Deny buttons
-# carry the shared __pw_ui class, so the "ignore clicks on our own UI" guard
-# in _INIT_SCRIPT covers this too. page.evaluate(script, arg) calls the
-# function with arg as its one parameter, not a destructured array.
+# Same idea as the pause banner, for risky actions that need a yes or no. The buttons share the
+# __pw_ui class, so the click-ignoring guard covers them.
 _SHOW_CONFIRM_JS = r"""
 ((message) => {
   if (document.getElementById('__pw_confirm_banner')) return;
@@ -184,23 +163,14 @@ _SHOW_CONFIRM_JS = r"""
 
 _HIDE_CONFIRM_JS = "document.getElementById('__pw_confirm_banner')?.remove();"
 
-# Structured capture of what a human actually does while they have control,
-# not a free-text note but a replayable action (see agent/executor.py's
-# record_human_action and artifact/schema.py's Step.source). Armed only
-# during a human-control window (start_capturing/stop_capturing below).
-#
-# accessibleName/roleOf/cssPath duplicate agent/perception.py's _SNAPSHOT_JS
-# almost verbatim, deliberately: a captured action's full descriptor must be
-# computed synchronously inside the same event-handler tick that might
-# immediately trigger a navigation. Reporting back to Python first would
-# race that navigation and can lose the element. Computing the descriptor
-# client-side avoids the race. Keeping the two in lockstep is a manual step,
-# not enforced, if they ever need to diverge.
+# Captures a human's live actions as replayable steps. accessibleName, roleOf and cssPath copy
+# agent/perception.py on purpose, so the descriptor is built before a navigation races it.
 _CAPTURE_INIT_JS = r"""
 (() => {
   if (window.__pwCaptureInstalled) return;
   window.__pwCaptureInstalled = true;
-  window.__pwCapturing = false;
+  // A navigation makes a new document, so read the state kept for this tab, not a fresh false.
+  try { window.__pwCapturing = sessionStorage.getItem('__pw_capturing') === '1'; } catch (e) { window.__pwCapturing = false; }
 
   function accessibleName(el) {
     const aria = el.getAttribute('aria-label');
@@ -213,13 +183,16 @@ _CAPTURE_INIT_JS = r"""
     if (wrapping && wrapping.innerText.trim()) return { name: wrapping.innerText.trim(), source: 'label' };
     const placeholder = el.getAttribute('placeholder');
     if (placeholder && placeholder.trim()) return { name: placeholder.trim(), source: 'placeholder' };
-    if ('value' in el && el.tagName !== 'SELECT' && el.value && el.value.trim()) {
+    // Kept in lockstep with agent/perception.py: only a button-type input's value is its
+    // name; a text field's value is user data, so it falls through to the row label.
+    if (el.tagName === 'INPUT' && ['submit', 'button', 'reset', 'image'].includes((el.getAttribute('type') || '').toLowerCase())
+        && el.value && el.value.trim()) {
       return { name: el.value.trim(), source: 'value' };
     }
     // Kept in lockstep with agent/perception.py: a <select>'s innerText is its
     // concatenated option list, never distinguishing same-shaped selects,
     // skip it and fall through to the row-based label.
-    if (el.tagName !== 'SELECT') {
+    if (!['SELECT', 'INPUT', 'TEXTAREA'].includes(el.tagName)) {
       const text = (el.innerText || '').trim();
       if (text) return { name: text.slice(0, 80), source: 'own_text' };
     }
@@ -331,9 +304,9 @@ class GestureController:
         resume nor a plain end."""
         self._confirm_result: Optional[bool] = None
         self._captured_actions: list[dict] = []
-        # A real navigation tears down the document, including any banner. These
-        # flags plus the load handler below re-render whichever banner is supposed
-        # to be showing after every navigation, for as long as it is active.
+        self._capturing = False
+        # A navigation wipes the document, banner included. These flags and the load handler redraw
+        # the right banner after each navigation.
         self._pause_active = False
         self._pause_context = ""
         self._pause_show_cancel = False
@@ -358,6 +331,8 @@ class GestureController:
     def _on_load(self, page: Page) -> None:
         """Fires on every real navigation of the main frame. Re-renders
         whichever banner is currently active; a no-op otherwise."""
+        if self._capturing:
+            self._set_page_capturing(True)  # covers a new origin, where session storage starts empty
         if self._pause_active:
             self._render_pause_banner()
         if self._confirm_active:
@@ -407,26 +382,32 @@ class GestureController:
         """Begins recording structured click/select/fill descriptors. Pair
         with stop_capturing() to bracket exactly the human-control window."""
         self._captured_actions = []
+        self._capturing = True
+        self._set_page_capturing(True)
+
+    def _set_page_capturing(self, on: bool) -> None:
+        """Sets the flag in the current document and in the tab's session storage, which is what a
+        later document reads, so actions after a navigation are still captured."""
+        script = (
+            "(on) => { window.__pwCapturing = on; "
+            "try { on ? sessionStorage.setItem('__pw_capturing', '1') : sessionStorage.removeItem('__pw_capturing'); } catch (e) {} }"
+        )
         try:
-            self.page.evaluate("window.__pwCapturing = true")
+            self.page.evaluate(script, on)
         except Exception:
-            pass
+            pass  # mid-navigation; _on_load sets it again once the new document is up
 
     def stop_capturing(self) -> list[dict]:
         """Stops recording and returns everything captured since
         start_capturing(), in order. Each entry: {action, descriptor, value}."""
-        try:
-            self.page.evaluate("window.__pwCapturing = false")
-        except Exception:
-            pass
+        self._capturing = False
+        self._set_page_capturing(False)
         actions, self._captured_actions = self._captured_actions, []
         return actions
 
     def mark_active(self, active: bool) -> None:
-        """Call around every action the executor itself dispatches, so the
-        injected listener can tell "we did this" apart from "a human did
-        this". The small settle delay here is cheap insurance, not confirmed
-        load-bearing; an earlier version of this comment overstated that."""
+        """Call around every action the executor dispatches, so the injected listener can tell our
+        actions from a human's. The short settle delay is cheap insurance."""
         try:
             self.page.evaluate(f"window.__pwActive = {'true' if active else 'false'}")
             self.page.wait_for_timeout(20)
@@ -434,11 +415,8 @@ class GestureController:
             pass  # mid-navigation; the init script reinstalls with __pwActive=false regardless
 
     def show_pause_banner(self, context: str = "", show_cancel: bool = False) -> None:
-        """Shows the pause banner without blocking; pairs with
-        poll_resume_result() so a caller can race this against another
-        channel instead of waiting here only. show_cancel adds real Restart
-        and End Run buttons alongside Resume, only where a genuine decision
-        exists (not the proactive human-gesture path, which is Resume-only)."""
+        """Shows the pause banner without blocking, so a caller can race it against another channel.
+        show_cancel adds Restart and End Run buttons next to Resume."""
         self._resume_note = None
         self._resume_decision = None
         self._restart_requested = False
@@ -472,13 +450,8 @@ class GestureController:
     def pause_and_wait_for_resume(
         self, context: str = "", show_cancel: bool = False, poll_interval_s: float = 0.25, timeout_s: float = 3600
     ) -> tuple[str, bool, bool]:
-        """Shows the on-page banner, blocks until the human clicks Resume,
-        Restart, or End Run (or timeout), and returns (note, resume,
-        restart). show_cancel controls whether Restart/End Run appear at
-        all; False (the default) keeps this Resume-only, for callers with
-        no real multi-way decision to offer. A timeout with nothing clicked
-        resolves as resume=False, restart=False: a caller must not treat
-        silence as consent to continue."""
+        """Shows the banner and blocks until Resume, Restart or End Run is clicked, or a timeout.
+        Returns (note, resume, restart). Silence is never treated as consent."""
         self.show_pause_banner(context, show_cancel=show_cancel)
         deadline = time.monotonic() + timeout_s
         while self.poll_resume_result() is None and time.monotonic() < deadline:

@@ -1,31 +1,12 @@
-"""Command-line entrypoint.
-
-The single public Task AI entry point (goal + target only):
-
-    python cli.py task --goal "Transfer $100 from Member 10001 checking to Member 10002 checking." \\
-        --target http://127.0.0.1:8000
-
-router.route() decides whether an existing capability covers this goal
-(deterministic replay, with typed inputs extracted from the goal text) or a
-new discovery run is needed. No --capability-id, no --param values here.
-
-`run` and `replay` remain as internal/advanced paths for recording a
-capability under an explicit name with explicit params, or replaying one
-directly:
-
-    python cli.py run --goal "..." --target-url http://127.0.0.1:8000/ \\
-        --capability-id open-member-subaccount --description "..." \\
-        --param member_id=10001 --param account_type=savings --param initial_deposit=100
-
-    python cli.py replay --artifact-path artifacts/open-member-subaccount@1.0.0.json \\
-        --param member_id=10001 --param account_type=savings --param initial_deposit=100
-"""
+"""Command-line entrypoint. `task` is the public Task AI interface (goal and target). `run` and
+`replay` are internal paths for recording or replaying a named capability."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
+from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
@@ -37,11 +18,13 @@ from logging_config import configure_logging
 configure_logging()
 
 from agent.loop import run_discovery
-from artifact.annotations import annotations_for
+from artifact.annotations import annotations_for, check_annotation_placeholders
 from artifact.recorder import record_artifact
 from artifact.schema import ArtifactStatus, TargetApp
 from artifact.store import load_path, save
 from replay.executor import replay_artifact
+from artifact.grounding import match_option
+from router.catalog import build_catalog
 from router.router import route
 
 logger = logging.getLogger(__name__)
@@ -64,12 +47,26 @@ def _parse_params(pairs: list[str]) -> dict[str, str]:
     return out
 
 
+def _attach_annotations(artifact, capability_id: str) -> None:
+    """Attaches reviewer annotations, and refuses to save an artifact whose annotations name an
+    input it lacks, which would leave literal braces in a replay URL."""
+    business_outcomes, recoverable, commit_verification = annotations_for(capability_id)
+    artifact.business_outcomes = business_outcomes
+    artifact.recoverable_conditions = recoverable
+    artifact.commit_verification = commit_verification
+    missing = check_annotation_placeholders(artifact)
+    if missing:
+        typer.echo(
+            f"NOT SAVED: the annotations for {capability_id!r} use {missing}, which are not inputs of this "
+            f"artifact (inputs: {[i.name for i in artifact.inputs]}). Update artifact/annotations.py to the "
+            "artifact's actual input names and record again.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+
 def _slugify(goal: str) -> str:
-    """Best-effort capability_id for a new capability discovered straight
-    from a Task AI goal with no operator-chosen name. Deliberately simple:
-    this entry point takes no --param values, so the result has no declared
-    typed inputs yet. Use `run` with --param to record a properly
-    parameterized version."""
+    """Makes a best-effort capability_id from a goal when the operator gave no name."""
     words = [w for w in re.findall(r"[a-zA-Z]+", goal.lower()) if w not in _SLUG_STOPWORDS]
     return "-".join(words[:4]) or "task"
 
@@ -82,6 +79,7 @@ def task(
     max_steps: int = typer.Option(30),
     headless: bool = typer.Option(False, help="Run a discovery fallback headless (default: headed, so you can watch)."),
     escalate_on_failure: bool = typer.Option(False, help="Route a replay hard failure to a human via the handoff session."),
+    yes: bool = typer.Option(False, help="Skip the confirmation shown before an APPROVED capability with an irreversible step runs unattended."),
 ):
     """The single public Task AI entry point: goal + target, nothing else.
     router.route() decides replay vs. discovery; this command carries out
@@ -89,8 +87,17 @@ def task(
     logger.info("task goal=%r target=%s", goal, target)
     decision = route(goal, target)
     typer.echo(f"Router decision: {decision.action}, {decision.reason}")
+    if decision.action == "discover" and "could not be reached" in decision.reason:
+        typer.echo("Tip: to run a saved capability without the router model, use `cli.py capabilities` and `cli.py invoke`.")
 
     if decision.action == "replay":
+        if decision.risky and decision.status == "approved" and not yes:
+            # An approved capability runs its risky step with nobody asked. The router picked it
+            # from free text, so show the interpretation and let a person catch a wrong match.
+            typer.echo(f"About to run '{decision.capability_id}' unattended, including an irreversible step, with:")
+            for name, value in decision.params.items():
+                typer.echo(f"  {name} = {value}")
+            typer.confirm("Is that what you meant?", abort=True)
         artifact = load_path(decision.artifact_path)
         result = replay_artifact(artifact, decision.params, headless=headless, escalate_on_failure=escalate_on_failure)
         typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
@@ -98,10 +105,8 @@ def task(
             raise typer.Exit(code=1)
         return
 
-    # decision.action == "discover": no existing capability covered this goal
-    # closely enough. Fall through to a real discovery run, the same
-    # mechanism as `run` below, without an operator-chosen capability_id or
-    # declared --param values.
+    # Nothing saved covers this goal, so fall through to a real discovery run, the same way `run`
+    # below does.
     result = run_discovery(goal=goal, target_url=target, max_steps=max_steps, headless=headless)
     logger.info("discovery outcome=%s success=%s", result.outcome, result.success)
     typer.echo(f"\nDiscovery outcome: {result.outcome} (success={result.success})")
@@ -112,20 +117,23 @@ def task(
 
     capability_id = _slugify(goal)
     target_app = TargetApp(app_id=app_id, base_url=target.rstrip("/"), entry_path="/")
-    artifact = record_artifact(result, capability_id, f"Auto-recorded from Task AI goal: {goal}", {}, target_app)
-    business_outcomes, recoverable, commit_verification = annotations_for(capability_id)
-    artifact.business_outcomes = business_outcomes
-    artifact.recoverable_conditions = recoverable
-    artifact.commit_verification = commit_verification
+    artifact = record_artifact(result, capability_id, "Auto-recorded from a Task AI goal.", {}, target_app)
+    # the description carries the goal TEMPLATE, never the raw goal: the demonstration's values (and any
+    # sensitive one) do not belong in a reusable capability's description or in the router's vocabulary
+    artifact.description = f"Auto-recorded from Task AI goal: {artifact.goal_template}"
+    _attach_annotations(artifact, capability_id)
     path = save(artifact)
     typer.echo(
         f"No existing capability matched, recorded a new one at {path} "
-        f"(capability_id={capability_id!r}, auto-generated). It has no declared "
-        f"typed inputs: the Task AI entry point doesn't take --param values, so "
-        f"nothing was demonstrated as parameterizable this run. Use "
-        f"`python cli.py run --capability-id {capability_id} --param ...` to "
-        f"record a properly reusable, parameterized version of this capability."
+        f"(capability_id={capability_id!r}, auto-generated)."
     )
+    if artifact.inputs:
+        typer.echo("Typed inputs taken from the goal: " + ", ".join(f"{i.name} ({i.type.value})" for i in artifact.inputs))
+    else:
+        typer.echo(
+            "WARNING: the goal supplied no values the agent applied to a control, so this capability has no "
+            "typed inputs and replays one fixed demonstration. Do not rely on it for other values."
+        )
 
 
 @app.command()
@@ -154,10 +162,7 @@ def run(
 
     target_app = TargetApp(app_id=app_id, base_url=target_url.rstrip("/"), entry_path="/")
     artifact = record_artifact(result, capability_id, description, declared_params, target_app, version=version)
-    business_outcomes, recoverable, commit_verification = annotations_for(capability_id)
-    artifact.business_outcomes = business_outcomes
-    artifact.recoverable_conditions = recoverable
-    artifact.commit_verification = commit_verification
+    _attach_annotations(artifact, capability_id)
 
     path = save(artifact)
     typer.echo(f"Saved artifact: {path}")
@@ -181,14 +186,79 @@ def replay(
 
 
 @app.command()
+def capabilities(
+    target: str = typer.Option("http://127.0.0.1:8000/", help="Only capabilities recorded against this target are listed."),
+):
+    """Lists the saved capabilities (the catalog) with their typed inputs. No model needed."""
+    entries = build_catalog(target)
+    if not entries:
+        typer.echo("No saved capabilities for this target.")
+        return
+    for e in entries:
+        flags = f"{e.status}" + (", has an irreversible step" if e.risky else "")
+        typer.echo(f"{e.capability_id}@{e.version} ({flags})\n  {e.description}")
+        for i in e.inputs:
+            choices = f" (one of: {', '.join(i.allowed_values)})" if i.allowed_values else ""
+            typer.echo(f"    --param {i.name}=...   {i.type}, e.g. {i.example}: {i.description}{choices}")
+
+
+@app.command()
+def invoke(
+    capability: str = typer.Option(..., help="Capability id from `capabilities`, e.g. transfer-funds. The latest version runs."),
+    param: list[str] = typer.Option([], help="Input param as name=value; repeatable. Every declared input is required."),
+    target: str = typer.Option("http://127.0.0.1:8000/", help="Target the capability was recorded against."),
+    headless: bool = typer.Option(True),
+    escalate_on_failure: bool = typer.Option(False, help="Route hard failures to a human via the handoff session."),
+    slow_mo_ms: int = typer.Option(0, help="Delay every browser operation by this many ms."),
+    yes: bool = typer.Option(False, help="Skip the confirmation before an APPROVED capability with an irreversible step runs."),
+):
+    """Runs a saved capability by name with typed args: the catalog interface, with no model in the path."""
+    entry = next((e for e in build_catalog(target) if e.capability_id == capability), None)
+    if entry is None:
+        known = ", ".join(e.capability_id for e in build_catalog(target)) or "none"
+        typer.echo(f"No saved capability {capability!r} for this target. Known: {known}.", err=True)
+        raise typer.Exit(code=2)
+    params = _parse_params(param)
+    declared = {i.name: i for i in entry.inputs}
+    problems = [f"missing --param {n}=..." for n in declared if n not in params]
+    problems += [f"unknown input {n!r}" for n in params if n not in declared]
+    problems += [
+        f"{n} must be a number, got {v!r}"
+        for n, v in params.items()
+        if n in declared and declared[n].type == "number" and not re.fullmatch(r"-?[\d,]*\.?\d+", v.replace("$", "").replace("%", "").strip())
+    ]
+    for n, v in list(params.items()):
+        choices = declared[n].allowed_values if n in declared else None
+        if choices:
+            option, kind = match_option(v, choices)
+            if option is None:
+                problems.append(f"{n} = {v!r} is not one of {choices}")
+            else:
+                if kind == "near":
+                    typer.echo(f"Reading {n} = {v!r} as {option!r}.")
+                params[n] = option  # the page's own spelling
+    if problems:
+        typer.echo(f"Cannot run {capability}: " + "; ".join(problems) + ". See `capabilities`.", err=True)
+        raise typer.Exit(code=2)
+    if entry.risky and entry.status == "approved" and not yes:
+        typer.echo(f"About to run '{capability}' unattended, including an irreversible step, with:")
+        for name, value in params.items():
+            typer.echo(f"  {name} = {value}")
+        typer.confirm("Go ahead?", abort=True)
+    logger.info("invoke capability=%s version=%s", capability, entry.version)
+    result = replay_artifact(load_path(entry.path), params, headless=headless, escalate_on_failure=escalate_on_failure, slow_mo_ms=slow_mo_ms)
+    typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    if result.kind == "hard_failure":
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def approve(
     artifact_path: str = typer.Option(..., help="Path to a saved artifact JSON file to approve for unattended replay."),
     yes: bool = typer.Option(False, help="Skip the interactive confirmation (for scripted review workflows)."),
 ):
-    """The reviewer action that moves an artifact from draft to approved.
-    Replay runs an approved artifact's risky/irreversible steps unattended
-    (flagged in the result); a draft artifact gets a live human gate before
-    each such step instead. Approve only after reading the artifact."""
+    """Moves an artifact from draft to approved. Its risky steps then run unattended, flagged in the
+    result; a draft asks a human first. Read it before approving."""
     artifact = load_path(artifact_path)
     risky = [s for s in artifact.steps if s.risk == "confirm"]
     typer.echo(f"{artifact.capability_id}@{artifact.version} (status: {artifact.status.value})")
@@ -203,7 +273,10 @@ def approve(
     if not yes:
         typer.confirm("Approve this artifact for unattended replay?", abort=True)
     artifact.status = ArtifactStatus.APPROVED
-    path = save(artifact)
+    # Write back to the file that was reviewed, not to the canonical artifacts/ location: approving a copy
+    # must never change a different file (save() keys the path on capability_id@version).
+    path = Path(artifact_path)
+    path.write_text(artifact.model_dump_json(indent=2))
     logger.info("artifact approved path=%s", path)
     typer.echo(f"Approved: {path}")
 

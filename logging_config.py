@@ -1,17 +1,5 @@
-"""System logging setup, used by cli.py and mock_app/app.py.
-
-Every module logs through logging.getLogger(__name__); this file only
-configures where those records go. Console plus a rotating file under
-logs/ is enough to find a run's successes and failures without adding a
-metrics/observability stack this project does not need.
-
-cli.py (the automation system: discovery, replay, router) and
-mock_app/app.py (the target app stand-in) are separate processes with
-separate root loggers, so each gets its own log file rather than sharing
-one: automation activity belongs in logs/app.log, and mock_app's own
-request log belongs in logs/mock_app.log. Mixing them would blur which
-side, the automation or the legacy app it is driving, produced a given line.
-"""
+"""Logging setup for cli.py and mock_app/app.py: console plus a rotating file under logs/. Each
+process gets its own file so automation and app lines don't mix."""
 
 from __future__ import annotations
 
@@ -19,7 +7,17 @@ import logging
 import logging.handlers
 from pathlib import Path
 
+from guardrails.redact import redact_text
+
 LOG_DIR = Path(__file__).resolve().parent / "logs"
+
+
+class _RedactFilter(logging.Filter):
+    """Scrubs PII shapes out of every log line, so a goal or value logged by any module is redacted."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg, record.args = redact_text(record.getMessage()), None
+        return True
 
 
 def configure_logging(name: str = "app", level: int = logging.INFO) -> None:
@@ -33,9 +31,11 @@ def configure_logging(name: str = "app", level: int = logging.INFO) -> None:
 
     console = logging.StreamHandler()
     console.setFormatter(fmt)
+    console.addFilter(_RedactFilter())
     root.addHandler(console)
 
     log_file = LOG_DIR / f"{name}.log"
     file_handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3)
     file_handler.setFormatter(fmt)
+    file_handler.addFilter(_RedactFilter())
     root.addHandler(file_handler)

@@ -1,0 +1,408 @@
+{
+  "capability_id": "update-member-address",
+  "version": "1.0.0",
+  "status": "draft",
+  "description": "Updates a member's mailing address.",
+  "goal_template": "Update address of member {member_id} to {address}",
+  "target_app": {
+    "app_id": "cu-servicing-console",
+    "tenant_id": null,
+    "base_url": "http://127.0.0.1:8000",
+    "entry_path": "/"
+  },
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "number",
+      "required": true,
+      "description": "Member ID to search and update",
+      "example": "10001"
+    },
+    {
+      "name": "address",
+      "type": "string",
+      "required": true,
+      "description": "New mailing address for member 10001",
+      "example": "[REDACTED] chicago"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "confirmation_message",
+      "type": "string",
+      "description": "Value read for confirmation_message.",
+      "source_step": 8
+    }
+  ],
+  "steps": [
+    {
+      "index": 0,
+      "action": "navigate",
+      "description": "Start at the target entry point.",
+      "target": null,
+      "value_template": "http://127.0.0.1:8000/",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 1,
+      "action": "click",
+      "description": "Navigate to Accounts section which likely has member management/address update options.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Accounts"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Accounts"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(2) > tbody > tr > td:nth-of-type(1) > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 44,
+              "y": 45
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 2,
+      "action": "click",
+      "description": "Member Inquiry likely allows searching for member and editing details like address.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Member Inquiry"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Member Inquiry"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(2) > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 73,
+              "y": 129
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 3,
+      "action": "fill",
+      "description": "Enter member ID to search for the member record.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "textbox",
+              "name": "e.g. {member_id}"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "e.g. {member_id}"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 152,
+              "y": 127
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "{member_id}",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 4,
+      "action": "click",
+      "description": "Search for member 10001 after entering their ID.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Search"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Search"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td:nth-of-type(3) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 234,
+              "y": 127
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 5,
+      "action": "click",
+      "description": "Click Edit Contact Info to update the member's address.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Edit Contact Info"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Edit Contact Info"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 72,
+              "y": 459
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 6,
+      "action": "fill",
+      "description": "Update mailing address field with new address as per goal.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(2) > td:nth-of-type(2) > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 279,
+              "y": 146
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": "{address}",
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 7,
+      "action": "click",
+      "description": "Save the updated address.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "button",
+              "name": "Save Changes"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Save Changes"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(3) > td > input"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 70,
+              "y": 171
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 8,
+      "action": "read_text",
+      "description": "Confirm the success message text for the address update.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "text",
+              "name": "Contact info updated."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Contact info updated."
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table:nth-of-type(3) > tbody > tr > td > b"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 92,
+              "y": 97
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": "confirmation_message",
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    }
+  ],
+  "final_checkpoint": {
+    "kind": "text_contains",
+    "value": "Contact info updated",
+    "target": null
+  },
+  "step_timeout_ms": null,
+  "checkpoint_timeout_ms": null,
+  "business_outcomes": [],
+  "recoverable_conditions": [],
+  "commit_verification": null,
+  "overall_risk": "safe",
+  "created_from_run_id": "discovery_20260930T170943Z",
+  "created_at": "2026-09-30T17:10:08.883725Z"
+}

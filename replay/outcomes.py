@@ -1,15 +1,5 @@
-"""The replay result contract: the three-way split the brief asks for.
-
-- success: the artifact's flow completed and the final checkpoint held.
-- business_outcome: a declared, legitimate non-error result (e.g. "no such
-  member"), the caller needs this, it is not a crash.
-- hard_failure: something the artifact did not anticipate; stop and report
-  exactly what step, what was expected, and what was actually observed.
-
-Recoverable conditions never appear in the final result on their own; they
-are handled inline during a step and either fold back into success or, if
-recovery itself fails, escalate into hard_failure.
-"""
+"""The replay result contract: success, business_outcome (a declared legitimate result like 'no such
+member'), or hard_failure (unanticipated, with step, expected and observed)."""
 
 from __future__ import annotations
 
@@ -24,6 +14,10 @@ class FailureDetail(BaseModel):
     expected: str
     observed: str
     message: str
+    observed_page: str = ""
+    """What the page actually showed when the step failed: the last document response's HTTP
+    status, the URL, and the first part of the visible text (redacted). "Element not found" alone
+    hides the difference between a drifted UI and an app error page; this shows which it was."""
 
 
 class StrategyLogEntry(BaseModel):
@@ -34,14 +28,8 @@ class StrategyLogEntry(BaseModel):
 
 
 class EscalationRecord(BaseModel):
-    """A summary of one human escalation that happened during this replay run
-    -- reason, what the human said, and what they decided. The full detail
-    (screenshot, exact message, timestamps) still lives in the evidence
-    directory's handoff_log.jsonl; this exists so that ReplayResult itself
-    is self-contained -- a caller reading just the primary result object
-    should never have to separately discover and cross-reference a different
-    file to find out a human was involved in producing this result at all.
-    """
+    """Summary of one human escalation during a replay: reason, what they said, what they decided.
+    Full detail stays in handoff_log.jsonl."""
 
     reason: str
     outcome: str
@@ -58,6 +46,9 @@ class ReplayResult(BaseModel):
     outputs: dict[str, Any] = {}
     business_outcome_name: Optional[str] = None
     business_outcome_description: Optional[str] = None
+    business_outcome_source: Optional[Literal["capability", "app"]] = None
+    """Whether the matched outcome was declared by the capability itself or came from the
+    application's shared catalog (artifact/annotations.py), so a reader can tell."""
     failure: Optional[FailureDetail] = None
     recovered_via_commit_verification: bool = False
     """True only when a step failed at or after the risky confirm step, the
@@ -68,6 +59,13 @@ class ReplayResult(BaseModel):
     point (e.g. a confirmation number) are genuinely missing, not invented,
     so a caller that cares about that distinction should check this flag."""
 
+    commit_attempts: int = 1
+    """How many times the whole transaction was executed. 2 means the first attempt failed at or after its
+    risky step AND the run-id check verified nothing had been registered, so replay re-ran the same recorded
+    steps once. Never more than 2, and never after an unverified or inconclusive result."""
+    session_reauths: int = 0
+    """How many times replay signed back in after the app's session expired (before a step, or to check a commit).
+    The credentials come from the replay process's environment and are never written anywhere."""
     unattended_risky_steps: list[int] = []
     """Indexes of risky/irreversible (risk="confirm") steps that executed with no
     per-run human approval, because the artifact's status is "approved". This

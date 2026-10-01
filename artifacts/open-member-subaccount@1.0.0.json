@@ -2,8 +2,8 @@
   "capability_id": "open-member-subaccount",
   "version": "1.0.0",
   "status": "draft",
-  "description": "Opens a new sub-account for an existing member with a caller-specified account type and initial deposit, and reaches the confirmation screen.",
-  "goal_template": "Open a new savings sub-account for member 10001 with a 50 dollar initial deposit and reach the confirmation screen.",
+  "description": "Opens a new sub-account for an existing member and reaches the confirmation screen.",
+  "goal_template": "Open a new {account_type} sub-account for member {member_id} with a ${initial_deposit} initial deposit and reach the confirmation screen.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
@@ -15,22 +15,35 @@
       "name": "member_id",
       "type": "number",
       "required": true,
-      "description": "Value for member_id.",
-      "example": "10001"
+      "description": "Member ID for whom the sub-account is opened",
+      "example": "10001",
+      "allowed_values": null
+    },
+    {
+      "name": "account_type",
+      "type": "string",
+      "required": true,
+      "description": "Type of sub-account to open",
+      "example": "Savings",
+      "allowed_values": [
+        "Savings",
+        "Checking"
+      ]
     },
     {
       "name": "initial_deposit",
       "type": "number",
       "required": true,
-      "description": "Value for initial_deposit.",
-      "example": "50"
+      "description": "Initial deposit amount in dollars",
+      "example": "100",
+      "allowed_values": null
     }
   ],
   "outputs": [
     {
-      "name": "new_subaccount_id",
+      "name": "new_account_id",
       "type": "string",
-      "description": "Value read for new_subaccount_id.",
+      "description": "Value read for new_account_id.",
       "source_step": 9
     }
   ],
@@ -93,8 +106,53 @@
     },
     {
       "index": 2,
+      "action": "click",
+      "description": "Open new account creation form.",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "New Account"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "New Account"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(3) > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 64,
+              "y": 159
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 3,
       "action": "fill",
-      "description": "Enter member ID to search for their accounts.",
+      "description": "Enter the member ID to search for.",
       "target": {
         "candidates": [
           {
@@ -137,9 +195,9 @@
       "source": "llm"
     },
     {
-      "index": 3,
+      "index": 4,
       "action": "click",
-      "description": "Search for member 10001's accounts.",
+      "description": "Search for the member to proceed to account creation.",
       "target": {
         "candidates": [
           {
@@ -182,54 +240,9 @@
       "source": "llm"
     },
     {
-      "index": 4,
-      "action": "click",
-      "description": "Open the new sub-account creation form for this member.",
-      "target": {
-        "candidates": [
-          {
-            "strategy": "role_name",
-            "value": {
-              "role": "link",
-              "name": "Open a New Sub-Account for this Member"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "text",
-            "value": {
-              "text": "Open a New Sub-Account for this Member"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "css_path",
-            "value": {
-              "css": "table > tbody > tr:nth-of-type(1) > td > a"
-            },
-            "observed_at_record_time": false
-          },
-          {
-            "strategy": "coordinates",
-            "value": {
-              "x": 154,
-              "y": 943
-            },
-            "observed_at_record_time": false
-          }
-        ],
-        "frame_chain": []
-      },
-      "value_template": null,
-      "extract_as": null,
-      "checkpoint": null,
-      "risk": "safe",
-      "source": "llm"
-    },
-    {
       "index": 5,
       "action": "select",
-      "description": "Select Savings as the account type.",
+      "description": "Select Savings account type as per goal.",
       "target": {
         "candidates": [
           {
@@ -250,7 +263,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "Savings",
+      "value_template": "{account_type}",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -259,7 +272,7 @@
     {
       "index": 6,
       "action": "fill",
-      "description": "Set the initial deposit amount to $50.",
+      "description": "Enter the $100 initial deposit amount as specified in the goal.",
       "target": {
         "candidates": [
           {
@@ -289,7 +302,7 @@
     {
       "index": 7,
       "action": "click",
-      "description": "Proceed to review the sub-account opening details.",
+      "description": "Proceed to review step with entered Savings account type and $100 deposit.",
       "target": {
         "candidates": [
           {
@@ -379,21 +392,21 @@
     {
       "index": 9,
       "action": "read_text",
-      "description": "Capture the confirmed new sub-account ID for reporting.",
+      "description": "Read the generated sub-account identifier for confirmation.",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "text",
-              "name": "SA-{initial_deposit}28"
+              "name": "SA-5003"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "SA-{initial_deposit}28"
+              "text": "SA-5003"
             },
             "observed_at_record_time": false
           },
@@ -416,36 +429,20 @@
         "frame_chain": []
       },
       "value_template": null,
-      "extract_as": "new_subaccount_id",
+      "extract_as": "new_account_id",
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
     }
   ],
   "final_checkpoint": {
-    "kind": "url_contains",
-    "value": "/member/{member_id}/new-subaccount/confirm",
+    "kind": "text_contains",
+    "value": "Sub-account opened successfully.",
     "target": null
   },
+  "step_timeout_ms": null,
+  "checkpoint_timeout_ms": null,
   "business_outcomes": [
-    {
-      "name": "member_not_found",
-      "detect": {
-        "kind": "text_contains",
-        "value": "No member found",
-        "target": null
-      },
-      "description": "The given member ID does not exist in the core system."
-    },
-    {
-      "name": "account_locked",
-      "detect": {
-        "kind": "text_contains",
-        "value": "Account Locked.",
-        "target": null
-      },
-      "description": "Member has a compliance hold; write actions are blocked until cleared by a supervisor."
-    },
     {
       "name": "invalid_deposit_amount",
       "detect": {
@@ -454,15 +451,6 @@
         "target": null
       },
       "description": "The requested initial deposit violates the minimum-deposit business rule."
-    },
-    {
-      "name": "insufficient_funds",
-      "detect": {
-        "kind": "text_contains",
-        "value": "Insufficient funds",
-        "target": null
-      },
-      "description": "The funding/source account does not have enough balance to cover the requested amount."
     }
   ],
   "recoverable_conditions": [
@@ -491,7 +479,16 @@
       "description": "A known interstitial that appears for some sessions before a write form loads; dismiss and continue."
     }
   ],
+  "commit_verification": {
+    "navigate_template": "{base_url}/member/{primary_id}",
+    "detect": {
+      "kind": "text_contains",
+      "value": "{run_id}",
+      "target": null
+    },
+    "description": "Checks the member's sub-account list for this attempt's run id in the Source column."
+  },
   "overall_risk": "confirm",
-  "created_from_run_id": "discovery_20260928T175834Z",
-  "created_at": "2026-09-28T17:58:52.918182Z"
+  "created_from_run_id": "discovery_20260930T194922Z",
+  "created_at": "2026-09-30T19:49:40.601869Z"
 }

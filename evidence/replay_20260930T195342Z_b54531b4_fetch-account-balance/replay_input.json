@@ -1,0 +1,7 @@
+{
+  "capability_id": "fetch-account-balance",
+  "version": "1.0.0",
+  "params": {
+    "member_id": "20001"
+  }
+}

@@ -1,10 +1,5 @@
-"""Executes one tool call against the live page, enforcing guardrails and
-routing risky actions through the human-handoff session before they happen.
-
-This is the single chokepoint the LLM-driven loop calls through: no tool
-call reaches Playwright without passing _check_policy first. The allowlist
-and risk policy are enforced here, not trusted to the LLM's judgment.
-"""
+"""Runs one tool call against the live page. Every call goes through the allowlist and risk policy
+first, and risky ones go to a human."""
 
 from __future__ import annotations
 
@@ -43,6 +38,14 @@ class StepLog:
     ok: bool = True
     error: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    options: Optional[list[str]] = None
+    """For a select step: the dropdown's visible choices at the time, so the recorder can declare them
+    as the input's allowed values."""
+    param_binding: Optional[str] = None
+    """The declared input this step's fill/select value was bound to (set by
+    agent/loop.py when `done` is accepted). The recorder templates the step as
+    {param_binding} directly, so a value redacted at log time (a sensitive-named
+    field) can still be parameterized without the raw value ever being persisted."""
     source: str = "llm"
     """'llm' (default, a normal tool call) or 'human_intervention' (captured
     while a human had control, see Executor.record_human_action). Threaded
@@ -70,17 +73,17 @@ class Executor:
         self.goal = goal
         self.evidence_dir = evidence_dir
         self.steps: list[StepLog] = []
+        # Raw fill/select values by step index, in memory only. Never serialized. Used at `done` to
+        # prove a declared input was applied and came from the goal.
+        self.raw_values: dict[int, str] = {}
         self._snapshot: Optional[Snapshot] = None
         # Optional GestureController: marks each dispatched action as "ours" so a
         # human's own click/keypress elsewhere is detectable.
         self._gesture = gesture
 
     def _dispatch(self, fn):
-        """Runs one real Playwright action, bracketed so gesture detection can
-        tell "we did this" apart from a human doing something else on the
-        page. Also where LLM_CONTROL is actually enforced, not just
-        narrated: every Executor method that touches the page funnels
-        through here."""
+        """Runs one real Playwright action, marked so gesture detection can tell it from a human's.
+        Also where LLM_CONTROL is enforced."""
         if not self.handoff.is_agent_allowed():
             raise RuntimeError(
                 f"Refusing to dispatch an LLM-driven action while session state is "
@@ -172,11 +175,14 @@ class Executor:
             target=el.to_target(),
             url_before=self.page.url,
             risk=risk,
+            options=[o["label"] for o in el.options] if action == "select" and el.options else None,
         )
         if not allowed:
             log.ok, log.error = False, f"{action} blocked: {note}"
             self.steps.append(log)
             return {"ok": False, "error": log.error}
+        if value is not None:
+            self.raw_values[log.index] = value
 
         try:
             locator = resolve_locator(self.page, el)
@@ -203,21 +209,8 @@ class Executor:
         return result
 
     def record_human_action(self, action: str, descriptor: dict, value: Optional[str], url: str) -> StepLog:
-        """Turns one captured human interaction into a StepLog with
-        source="human_intervention", using the same Target-building path a
-        normal LLM-driven step uses.
-
-        descriptor is the {role, name, name_source, css, bbox, options}
-        dict the capture listener computed client-side, synchronously, at
-        the moment of the click/change (see handoff/gesture.py). Building a
-        PerceivedElement from it and calling .to_target() reuses
-        agent.perception's locator-candidate logic verbatim, so a
-        human-taught step gets the identical ranked-fallback Target an
-        LLM-discovered step would.
-
-        Not called through _dispatch(): the human already performed this
-        action directly, this only records it.
-        """
+        """Turns one captured human action into a StepLog (source="human_intervention"), built like
+        an LLM step. Not run through _dispatch, since the human already did it."""
         el = PerceivedElement(
             ref="human",
             frame_index=0,  # main-frame only, see handoff/gesture.py's documented scope
@@ -246,7 +239,10 @@ class Executor:
             risk=risk,
             ok=True,
             source="human_intervention",
+            options=[o["label"] for o in el.options] if action == "select" and el.options else None,
         )
+        if value is not None:
+            self.raw_values[log.index] = value
         self.steps.append(log)
         return log
 

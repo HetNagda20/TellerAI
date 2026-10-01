@@ -48,12 +48,8 @@ SUBACCOUNTS: dict[str, list[dict]] = {mid: [] for mid in MEMBERS}
 # member_id -> list of {id, principal, purpose, interest_rate, status, created_at, source, run_id}
 LOANS: dict[str, list[dict]] = {mid: [] for mid in MEMBERS}
 
-# member_id -> list of {timestamp, description, account, amount, balance_after, source, run_id},
-# newest first. Seed rows are historical/pre-existing data (source="seed"); anything the
-# automation creates gets a real millisecond-precision timestamp and its true source/run_id.
-# Every write route reads X-Automation-Source / X-Run-Id off the request and threads it
-# through, so the data itself shows whether an AI reasoned its way through the action live
-# (source="discovery") or a saved capability replayed it deterministically (source="replay").
+# member_id -> transaction rows, newest first. Seed rows have source="seed". Write routes read
+# X-Automation-Source and X-Run-Id, so the data shows whether discovery or replay made the change.
 TRANSACTIONS: dict[str, list[dict]] = {
     "10001": [
         {"timestamp": "2026-09-20 09:14:02.000", "description": "Grocery Mart", "account": "checking", "amount": -64.21, "balance_after": 812.44, "source": "seed", "run_id": ""},

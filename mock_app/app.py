@@ -1,19 +1,10 @@
-"""A deliberately legacy credit-union servicing console.
+"""A deliberately legacy credit-union console: table layout, no test ids, an iframe balance panel, a
+tab bar, and real business-error pages. Stands in for a no-API back-office app."""
 
-Table-based layout, no ids/data-testid attributes, an iframe for the balance
-panel, a persistent top tab bar (Accounts / Transactions / Loans / Cards),
-and real business-error branches (not found, locked account, validation, a
-session interstitial). This stands in for the kind of no-API, no-clean-DOM
-back-office app the automation system targets.
-
-Navigation shape: each real section (Accounts, Transactions, Loans) has a
-landing page with two choices, and member lookup happens after the choice,
-not before it, so there is no single shared search page every operation
-starts from. Cards is a static placeholder with no member lookup.
-"""
-
+import asyncio
 import logging
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -40,20 +31,38 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 app = FastAPI(title="CU Servicing Console (mock)")
 
 
-# -- Test-only fault injection --------------------------------------------
-#
-# Not part of the business API surface. Exists so an external test/experiment can
-# arm exactly one failure scenario for the next matching write, then have it
-# auto-consume, without touching any real business data and without any seam
-# into replay/executor.py or the artifact/replay engine at all. A real caller
-# never hits /__test__/*, and no normal request can trigger this by accident.
+# Test-only fault injection, not part of the business API. A test arms one failure for the
+# next matching write and it clears itself.
 _armed_test_failure: str | None = None
+_response_delay_ms = 0
+
+# Session expiry. A browser holds a cookie with the session epoch it was given; expiring bumps the epoch, so the
+# next request from that browser is sent to the sign-in page. A browser with no cookie is given a current session.
+# These are the mock app's own demo credentials, not secrets: replay is handed them through its environment.
+_session_epoch = 0
+MOCK_USERNAME = "teller"
+MOCK_PASSWORD = "teller-demo-pass"
 
 
 def _consume_armed_test_failure() -> str | None:
     global _armed_test_failure
     scenario, _armed_test_failure = _armed_test_failure, None
     return scenario
+
+
+def _injected_failure(request: Request, phase: str):
+    """Test-only. If the armed scenario matches this phase, consume it and answer 503. "before"
+    fails prior to any write; "after" fails once the write has committed."""
+    if phase == "after" and _armed_test_failure == "session_expires_after_confirm":
+        # the write above has committed; the response is the sign-in page, as if the session lapsed on the way back
+        _consume_armed_test_failure()
+        _expire_sessions()
+        return RedirectResponse(url="/login?next=/", status_code=303)
+    scenario = "pre_commit_response_failure" if phase == "before" else "post_commit_response_failure"
+    if _armed_test_failure == scenario:
+        _consume_armed_test_failure()
+        return templates.TemplateResponse(request, "post_commit_response_failure.html", {"active_tab": None}, status_code=503)
+    return None
 
 
 @app.post("/__test__/arm_failure")
@@ -64,14 +73,75 @@ def arm_test_failure(scenario: str = Form(...)):
     return {"armed": scenario}
 
 
+@app.post("/__test__/expire_sessions")
+def expire_sessions_now():
+    """Test-only: every open session expires now, so each browser's next request lands on the sign-in page."""
+    _expire_sessions()
+    return {"session_epoch": _session_epoch}
+
+
+@app.post("/__test__/set_delay")
+def set_test_delay(ms: int = Form(...)):
+    """Test-only: hold every business response for this many ms, to imitate a slow legacy backend."""
+    global _response_delay_ms
+    _response_delay_ms = max(0, ms)
+    return {"delay_ms": _response_delay_ms}
+
+
+def _expire_sessions() -> None:
+    global _session_epoch
+    _session_epoch += 1
+    logger.warning("test: every open session expired (epoch %s)", _session_epoch)
+
+
+@app.middleware("http")
+async def session_gate(request: Request, call_next):
+    """Sends a browser whose session has expired to the sign-in page, and gives a browser with none a current one.
+    Test-only triggers can expire sessions at one named point, before the request is served."""
+    path = request.url.path
+    if path.startswith("/__test__") or path == "/login":
+        return await call_next(request)
+    armed = _armed_test_failure
+    if request.method == "POST" and (
+        (armed == "session_expires_at_review" and path.endswith("/transactions/new/transfer"))
+        or (armed == "session_expires_at_confirm" and path.endswith("/transfer/confirm"))
+    ):
+        _consume_armed_test_failure()
+        _expire_sessions()
+    held = request.cookies.get("session_epoch")
+    if held is not None and held.isdigit() and int(held) < _session_epoch:
+        return RedirectResponse(url="/login?next=" + quote(path), status_code=303)
+    response = await call_next(request)
+    if held is None:
+        response.set_cookie("session_epoch", str(_session_epoch))
+    return response
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/"):
+    return templates.TemplateResponse(request, "login.html", {"next": next, "error": None, "active_tab": None})
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login_submit(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("/")):
+    if (username, password) != (MOCK_USERNAME, MOCK_PASSWORD):
+        return templates.TemplateResponse(
+            request, "login.html", {"next": next, "error": "Invalid user name or password.", "active_tab": None}, status_code=401
+        )
+    target = next if next.startswith("/") and not next.startswith("//") else "/"
+    response = RedirectResponse(url=target, status_code=303)
+    response.set_cookie("session_epoch", str(_session_epoch))
+    return response
+
+
 @app.middleware("http")
 async def log_automation_source(request: Request, call_next):
-    """Live, human-watchable evidence of who is driving the browser on every
-    request, not just the per-run JSON in /evidence/. X-Automation-Source and
-    X-Run-Id are set by agent/loop.py (discovery) and replay/executor.py
-    (replay); absent entirely for an organic manual request."""
+    """Logs who is driving the browser on every request, from the X-Automation-Source and X-Run-Id
+    headers. Absent for a manual request."""
     source = request.headers.get("x-automation-source", "manual")
     run_id = request.headers.get("x-run-id", "")
+    if _response_delay_ms and not request.url.path.startswith("/__test__"):
+        await asyncio.sleep(_response_delay_ms / 1000)
     response = await call_next(request)
     tag = f"{source}:{run_id}" if run_id else source
     level = logging.INFO if response.status_code < 400 else logging.WARNING
@@ -286,6 +356,8 @@ def new_subaccount_confirm(
     initial_deposit: float = Form(...),
     funding_source: str = Form(...),
 ):
+    if (failure := _injected_failure(request, "before")) is not None:
+        return failure
     member = MEMBERS[member_id]
     source, run_id = _automation_source(request)
     entry = record_subaccount(member_id, account_type, initial_deposit, source=source, run_id=run_id)
@@ -301,6 +373,8 @@ def new_subaccount_confirm(
             source=source,
             run_id=run_id,
         )
+    if (failure := _injected_failure(request, "after")) is not None:
+        return failure
     return templates.TemplateResponse(
         request,
         "success.html",
@@ -475,6 +549,8 @@ def transfer_confirm(
     to_account: str = Form(...),
     amount: float = Form(...),
 ):
+    if (failure := _injected_failure(request, "before")) is not None:
+        return failure
     member = MEMBERS[member_id]
     to_member = MEMBERS[to_member_id]
     confirmation_number = next_transfer_id()
@@ -487,15 +563,10 @@ def transfer_confirm(
     record_transaction(member_id, f"Transfer to {to_member_id} ({confirmation_number})", from_account, -amount, source=source, run_id=run_id)
     record_transaction(to_member_id, f"Transfer from {member_id} ({confirmation_number})", to_account, amount, source=source, run_id=run_id)
 
-    # Test-only fault injection (see _armed_test_failure above): deliberately AFTER the
-    # mutation/ledger writes above, never instead of them, the write must be completely
-    # normal and indistinguishable from any other transfer for this experiment to mean
-    # anything. Triggered only by an explicit prior call to /__test__/arm_failure; never by
-    # member id, account, or amount, and it never runs for an ordinary request.
-    if _consume_armed_test_failure() == "post_commit_response_failure":
-        return templates.TemplateResponse(
-            request, "post_commit_response_failure.html", {"active_tab": "transactions"}, status_code=503
-        )
+    # Fault injection (see above) runs after the writes on purpose. The write must look like any
+    # other transfer. Only an explicit arm_failure call triggers it.
+    if (failure := _injected_failure(request, "after")) is not None:
+        return failure
 
     return templates.TemplateResponse(
         request,
@@ -634,9 +705,13 @@ def loan_confirm(
     loan_purpose: str = Form(...),
     interest_rate: float = Form(...),
 ):
+    if (failure := _injected_failure(request, "before")) is not None:
+        return failure
     member = MEMBERS[member_id]
     source, run_id = _automation_source(request)
     loan = record_loan(member_id, loan_amount, loan_purpose, interest_rate, source=source, run_id=run_id)
+    if (failure := _injected_failure(request, "after")) is not None:
+        return failure
     return templates.TemplateResponse(
         request, "loan_success.html", {"member_id": member_id, "member": member, "loan": loan, "active_tab": "loans"}
     )

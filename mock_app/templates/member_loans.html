@@ -16,6 +16,7 @@
   <td><b>Interest Rate</b></td>
   <td><b>Status</b></td>
   <td><b>Opened</b></td>
+  <td><b>Source</b></td>
 </tr>
 {% for loan in loans %}
 <tr>
@@ -25,10 +26,11 @@
   <td>{{ "%.2f"|format(loan.interest_rate) }}%</td>
   <td>{{ loan.status }}</td>
   <td>{{ loan.created_at }}</td>
+  <td>{{ loan.source }}{% if loan.run_id %} ({{ loan.run_id }}){% endif %}</td>
 </tr>
 {% endfor %}
 {% if not loans %}
-<tr><td colspan="6">No loan accounts on file.</td></tr>
+<tr><td colspan="7">No loan accounts on file.</td></tr>
 {% endif %}
 </table>
 <br>

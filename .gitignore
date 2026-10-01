@@ -11,3 +11,5 @@ node_modules/
 logs/
 teller.db
 .claude/
+
+STATS.md

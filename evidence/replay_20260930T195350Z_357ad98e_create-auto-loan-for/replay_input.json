@@ -1,0 +1,10 @@
+{
+  "capability_id": "create-auto-loan-for",
+  "version": "1.0.0",
+  "params": {
+    "member_id": "12345",
+    "loan_amount": "8000",
+    "loan_purpose": "Auto",
+    "interest_rate": "5.5"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "kind": "success",
+  "capability_id": "fetch-account-balance",
+  "version": "1.0.0",
+  "run_id": "replay_20260930T195342Z_b54531b4",
+  "outputs": {
+    "checking_balance": "$2421.77",
+    "savings_balance": "$9800.15"
+  },
+  "business_outcome_name": null,
+  "business_outcome_description": null,
+  "business_outcome_source": null,
+  "failure": null,
+  "recovered_via_commit_verification": false,
+  "commit_attempts": 1,
+  "unattended_risky_steps": [],
+  "steps_executed": 7,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 4,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 5,
+      "action": "read_text",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 6,
+      "action": "read_text",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    }
+  ],
+  "escalations": [],
+  "evidence_dir": "evidence/replay_20260930T195342Z_b54531b4_fetch-account-balance"
+}

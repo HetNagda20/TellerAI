@@ -1,17 +1,16 @@
+"""Turning a discovery step log into a reusable, parameterized artifact. Pure logic, no browser,
+hand-built StepLogs, and nothing specific to one workflow."""
+
+import pytest
+
 from agent.executor import StepLog
 from agent.loop import DiscoveryResult
-from artifact.recorder import _templatize, record_artifact
+from artifact.grounding import templatize_goal
+from artifact.recorder import _templatize, _templatize_candidate, _templatize_target, record_artifact
 from artifact.schema import ActionType, LocatorCandidate, LocatorStrategy, Target, TargetApp
 
-
-def test_templatize_replaces_declared_param_values():
-    out = _templatize("http://127.0.0.1:8000/member/10001", {"member_id": "10001"})
-    assert out == "http://127.0.0.1:8000/member/{member_id}"
-
-
-def test_templatize_leaves_unmatched_text_alone():
-    out = _templatize("http://127.0.0.1:8000/", {"member_id": "10001"})
-    assert out == "http://127.0.0.1:8000/"
+BASE = "http://127.0.0.1:8000"
+APP = TargetApp(app_id="cu-servicing-console", base_url=BASE, entry_path="/")
 
 
 def _target(name="Search") -> Target:
@@ -19,12 +18,8 @@ def _target(name="Search") -> Target:
 
 
 def _target_with_css(name: str, css: str) -> Target:
-    """A target whose role/name candidate is deliberately non-distinguishing
-    (mirrors two same-shaped <select> elements sharing an accessible name),
-    but whose css_path candidate is positionally distinct -- exactly the shape
-    replay/locators.py and artifact/recorder.py actually see for two
-    different controls on the same legacy form.
-    """
+    """Role and name are shared, like two same-shaped selects, but the css_path is distinct. That is
+    what the recorder sees for two controls on one form."""
     return Target(
         candidates=[
             LocatorCandidate(strategy=LocatorStrategy.ROLE_NAME, value={"role": "combobox", "name": name}),
@@ -33,305 +28,184 @@ def _target_with_css(name: str, css: str) -> Target:
     )
 
 
-def test_record_artifact_parameterizes_fill_and_drops_uncorrelated_reads():
-    steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(index=1, action="fill", rationale="enter id", ref="f0e0", element_name="e.g. 10001", value="10001", target=_target("e.g. 10001"), ok=True),
-        StepLog(index=2, action="click", rationale="search", ref="f0e1", element_name="Search", target=_target("Search"), ok=True),
-        StepLog(index=3, action="read_text", rationale="check balance, not a declared output", ref="f0e2", element_name="$812.44", target=_target("$812.44"), ok=True),
-    ]
+def _nav() -> StepLog:
+    return StepLog(index=0, action="navigate", rationale="start", url_before="", url_after=BASE + "/", ok=True)
+
+
+def _select(index, value, css, rationale="choose", options=None):
+    return StepLog(index=index, action="select", rationale=rationale, ref=f"f0e{index}", element_name="Account:", value=value, target=_target_with_css("Account:", css), ok=True, options=options)
+
+
+def _record(steps, params, outputs=None):
     result = DiscoveryResult(
-        run_id="discovery_test",
-        success=True,
-        outcome="done",
-        summary="done",
-        outputs={},
-        steps=steps,
-        goal="look up member 10001",
-        target_url="http://127.0.0.1:8000/",
-        started_at="t0",
-        ended_at="t1",
-        evidence_dir="/tmp/evidence_test",
+        run_id="discovery_test", success=True, outcome="done", summary="done", outputs=outputs or {}, steps=steps,
+        goal="g", target_url=BASE + "/", started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
     )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(result, "lookup-member", "desc", {"member_id": "10001"}, target_app)
-
-    fill_step = next(s for s in artifact.steps if s.action == ActionType.FILL)
-    assert fill_step.value_template == "{member_id}"
-    # the read_text step didn't match any declared output, so it's dropped from the artifact
-    assert all(s.action != ActionType.READ_TEXT for s in artifact.steps)
+    return record_artifact(result, "some-capability", "desc", params, APP)
 
 
-def test_record_artifact_drops_unused_declared_params_and_unresolved_outputs():
-    # Regression: a real run declared `account_type` as a required input (it was
-    # passed via --param) even though the agent left that dropdown at its default
-    # and no step ever templated {account_type} in, and separately reported extra
-    # "outputs" that were never actually read off the page via read_text. Both used
-    # to end up in the artifact's contract, which would have silently misrepresented
-    # what replay can actually control or produce.
+def _selects(artifact):
+    return [s for s in artifact.steps if s.action == ActionType.SELECT]
+
+
+def test_declared_values_become_templates_and_the_contract_only_promises_what_steps_use():
+    assert _templatize("http://127.0.0.1:8000/member/10001", {"member_id": "10001"}) == "http://127.0.0.1:8000/member/{member_id}"
+    assert _templatize(BASE + "/", {"member_id": "10001"}) == BASE + "/"
+
     steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
+        _nav(),
         StepLog(index=1, action="fill", rationale="enter id", ref="f0e0", element_name="e.g. 10001", value="10001", target=_target("e.g. 10001"), ok=True),
         StepLog(index=2, action="click", rationale="search", ref="f0e1", element_name="Search", target=_target("Search"), ok=True),
-        # note: no "select" step touches account_type at all, its default already matched the goal
-    ]
-    result = DiscoveryResult(
-        run_id="discovery_test",
-        success=True,
-        outcome="done",
-        summary="done",
-        # the model echoed member_id and a made-up "status" back as outputs, but only
-        # ever actually *read* nothing from the page in this trimmed step log
-        outputs={"member_id": "10001", "status": "ok"},
-        steps=steps,
-        goal="do the thing",
-        target_url="http://127.0.0.1:8000/",
-        started_at="t0",
-        ended_at="t1",
-        evidence_dir="/tmp/evidence_test",
-    )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(
-        result, "some-capability", "desc", {"member_id": "10001", "account_type": "savings"}, target_app
-    )
-
-    input_names = {i.name for i in artifact.inputs}
-    assert input_names == {"member_id"}, "account_type was never used by any step and must not be declared"
-    assert artifact.outputs == [], "outputs with no matching read step must not be declared"
-
-
-def test_record_artifact_parameterizes_select_and_fill_together():
-    """Regression: the discovery run that produced the original
-    open-member-subaccount@1.0.0 artifact never demonstrated account_type or
-    initial_deposit as controllable (no --param value it was given ever
-    literally matched what the agent typed/selected), so the recorder
-    correctly, per its own documented contract, left the select hardcoded
-    to a literal and dropped both from `inputs`. That left a capability whose
-    CLI usage advertised account_type/initial_deposit as params while the
-    artifact could never actually honor them (see PROJECT_STATE.md). This
-    proves the other side of that same contract: when a discovery run DOES
-    demonstrate a param on both a select and a fill step, both must end up
-    declared and templated, not just the first one recorder happens to check.
-    """
-    steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(index=1, action="fill", rationale="enter id", ref="f0e0", element_name="e.g. 10001", value="10001", target=_target("e.g. 10001"), ok=True),
-        StepLog(index=2, action="click", rationale="search", ref="f0e1", element_name="Search", target=_target("Search"), ok=True),
-        StepLog(index=3, action="select", rationale="choose account type", ref="f0e2", element_name="Savings\nChecking", value="Savings", target=_target("Savings\nChecking"), ok=True),
+        _select(3, "Savings", "tr:nth-of-type(1) > select", "choose account type", options=["Savings", "Checking"]),
         StepLog(index=4, action="fill", rationale="enter deposit", ref="f0e3", element_name="Deposit", value="25", target=_target("Deposit"), ok=True),
+        StepLog(index=5, action="read_text", rationale="check a balance, not a declared output", ref="f0e4", element_name="$812.44", target=_target("$812.44"), ok=True),
     ]
-    result = DiscoveryResult(
-        run_id="discovery_test",
-        success=True,
-        outcome="done",
-        summary="done",
-        outputs={},
-        steps=steps,
-        goal="open a savings sub-account with a 25 deposit",
-        target_url="http://127.0.0.1:8000/",
-        started_at="t0",
-        ended_at="t1",
-        evidence_dir="/tmp/evidence_test",
-    )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(
-        result,
-        "open-member-subaccount",
-        "desc",
-        {"member_id": "10001", "account_type": "Savings", "initial_deposit": "25"},
-        target_app,
+    artifact = _record(
+        steps,
+        # "funding" is declared on the CLI but no step ever uses it; "status" is echoed as an output but never read
+        {"member_id": "10001", "account_type": "Savings", "initial_deposit": "25", "funding": "checking"},
+        outputs={"status": "ok"},
     )
 
-    input_names = {i.name for i in artifact.inputs}
-    assert input_names == {"member_id", "account_type", "initial_deposit"}
+    assert {i.name for i in artifact.inputs} == {"member_id", "account_type", "initial_deposit"}
+    assert artifact.outputs == []
+    assert _selects(artifact)[0].value_template == "{account_type}"
+    # the dropdown's own choices travel with the input, so the router can check a spelling against them
+    assert {i.name: i.allowed_values for i in artifact.inputs} == {"member_id": None, "account_type": ["Savings", "Checking"], "initial_deposit": None}
+    assert [s.value_template for s in artifact.steps if s.action == ActionType.FILL] == ["{member_id}", "{initial_deposit}"]
+    assert all(s.action != ActionType.READ_TEXT for s in artifact.steps)  # an informational read is not part of the capability
 
-    select_step = next(s for s in artifact.steps if s.action == ActionType.SELECT)
-    fill_steps = [s for s in artifact.steps if s.action == ActionType.FILL]
-    assert select_step.value_template == "{account_type}"
-    assert any(s.value_template == "{initial_deposit}" for s in fill_steps)
-
-
-def test_record_artifact_distinguishes_identical_values_on_different_controls():
-    """Regression for the transfer-funds@1.0.0 bug (see PROJECT_STATE.md): from_account
-    and to_account were both demonstrated as "Checking" -- two DIFFERENT controls
-    sharing the IDENTICAL value. The old value-only _templatize matching collapsed
-    both onto whichever declared param it happened to check first (from_account),
-    leaving to_account undeclared entirely and its select never actually distinctly
-    templated. The generic fix keys parameterization off (value, control identity)
-    via each step's own css_path candidate, not value alone -- no transfer-specific
-    logic anywhere in this test or in the recorder.
-    """
-    steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(index=1, action="fill", rationale="enter member id", ref="f0e0", element_name="e.g. 10001", value="10001", target=_target("e.g. 10001"), ok=True),
-        StepLog(
-            index=2, action="select", rationale="choose source account",
-            ref="f0e1", element_name="Checking\nSavings", value="Checking",
-            target=_target_with_css("Checking\nSavings", "tr:nth-of-type(1) > td:nth-of-type(2) > select"), ok=True,
-        ),
-        StepLog(
-            index=3, action="select", rationale="choose destination account",
-            ref="f0e2", element_name="Checking\nSavings", value="Checking",
-            target=_target_with_css("Checking\nSavings", "tr:nth-of-type(3) > td:nth-of-type(2) > select"), ok=True,
-        ),
-    ]
-    result = DiscoveryResult(
-        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={},
-        steps=steps, goal="transfer checking to checking", target_url="http://127.0.0.1:8000/",
-        started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
-    )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(
-        result, "transfer-funds", "desc",
-        {"member_id": "10001", "from_account": "Checking", "to_account": "Checking"},
-        target_app,
-    )
-
-    input_names = {i.name for i in artifact.inputs}
-    assert input_names == {"member_id", "from_account", "to_account"}, (
-        "both from_account and to_account must be declared even though they share the same demonstrated value"
-    )
-
-    select_steps = [s for s in artifact.steps if s.action == ActionType.SELECT]
-    assert len(select_steps) == 2
-    templates = {s.value_template for s in select_steps}
-    assert templates == {"{from_account}", "{to_account}"}, f"expected each select bound to its OWN param, got {templates}"
-
-
-def test_record_artifact_reuses_same_param_when_same_control_revisited():
-    """The same control acted on twice (e.g. re-set after a page refresh) must
-    keep mapping to the same declared param both times, not consume a second
-    one -- preserves the existing multi-step-reuse behavior while fixing the
-    identical-value-different-control case above.
-    """
-    steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(
-            index=1, action="select", rationale="choose account type",
-            ref="f0e0", element_name="Checking\nSavings", value="Checking",
-            target=_target_with_css("Checking\nSavings", "tr:nth-of-type(1) > select"), ok=True,
-        ),
-        StepLog(
-            index=2, action="select", rationale="re-confirm account type after a page refresh",
-            ref="f0e1", element_name="Checking\nSavings", value="Checking",
-            target=_target_with_css("Checking\nSavings", "tr:nth-of-type(1) > select"), ok=True,
-        ),
-    ]
-    result = DiscoveryResult(
-        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={},
-        steps=steps, goal="set account type twice", target_url="http://127.0.0.1:8000/",
-        started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
-    )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(result, "some-capability", "desc", {"account_type": "Checking"}, target_app)
-
-    input_names = {i.name for i in artifact.inputs}
-    assert input_names == {"account_type"}
-    select_steps = [s for s in artifact.steps if s.action == ActionType.SELECT]
-    assert [s.value_template for s in select_steps] == ["{account_type}", "{account_type}"]
-
-
-def test_record_artifact_rejects_failed_run():
-    result = DiscoveryResult(
+    failed = DiscoveryResult(
         run_id="x", success=False, outcome="give_up", summary="stuck", outputs={}, steps=[],
         goal="g", target_url="http://x", started_at="t0", ended_at="t1", evidence_dir="/tmp/x",
     )
-    target_app = TargetApp(app_id="a", base_url="http://x", entry_path="/")
-    try:
-        record_artifact(result, "cap", "desc", {}, target_app)
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
+    with pytest.raises(ValueError):
+        record_artifact(failed, "cap", "desc", {}, TargetApp(app_id="a", base_url="http://x", entry_path="/"))
 
 
-# -- param matching normalization (case + surrounding whitespace only) ---------
-
-def _record_single_select(recorded_value: str, declared_value: str):
-    """One select step, recorded with `recorded_value` (what the model passed
-    to the select tool, typically the option's visible label), against a
-    declared param `account`=`declared_value` (what the operator typed on the
-    CLI, typically the underlying option value)."""
-    steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(
-            index=1, action="select", rationale="choose account", ref="f0e0", element_name="From Account:",
-            value=recorded_value, target=_target_with_css("From Account:", "select:nth-of-type(1)"), ok=True,
-        ),
-    ]
-    result = DiscoveryResult(
-        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={}, steps=steps,
-        goal="choose an account", target_url="http://127.0.0.1:8000/", started_at="t0", ended_at="t1",
-        evidence_dir="/tmp/evidence_test",
+def test_values_bind_to_the_control_that_demonstrated_them_not_just_to_the_value():
+    """Two DIFFERENT controls demonstrating the IDENTICAL value (a transfer's source
+    and destination both "Checking") must stay two distinct params; the same control
+    revisited must keep its one param."""
+    two_controls = _record(
+        [_nav(), _select(1, "Checking", "tr:nth-of-type(1) > td:nth-of-type(2) > select"), _select(2, "Checking", "tr:nth-of-type(3) > td:nth-of-type(2) > select")],
+        {"from_account_type": "Checking", "to_account_type": "Checking"},
     )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(result, "pick-account", "desc", {"account": declared_value}, target_app)
-    select_step = next(s for s in artifact.steps if s.action == ActionType.SELECT)
-    return select_step.value_template, {i.name for i in artifact.inputs}
+    assert {i.name for i in two_controls.inputs} == {"from_account_type", "to_account_type"}
+    assert [s.value_template for s in _selects(two_controls)] == ["{from_account_type}", "{to_account_type}"]
+
+    revisited = _record(
+        [_nav(), _select(1, "Checking", "tr:nth-of-type(1) > select"), _select(2, "Checking", "tr:nth-of-type(1) > select", "re-set after a page refresh")],
+        {"account_type": "Checking"},
+    )
+    assert {i.name for i in revisited.inputs} == {"account_type"}
+    assert [s.value_template for s in _selects(revisited)] == ["{account_type}", "{account_type}"]
 
 
-def test_param_match_exact_string_still_matches():
-    template, inputs = _record_single_select("checking", "checking")
-    assert template == "{account}"
-    assert inputs == {"account"}
+def test_a_recorded_value_matches_its_declared_param_despite_case_or_whitespace_and_nothing_fuzzier():
+    """A select logs the option's visible label ("Checking"); the operator declares the
+    underlying value ("checking"). Same demonstrated input, different representation."""
+    for recorded, declared in [("checking", "checking"), ("Checking", "checking"), ("Savings", "savings"), ("checking", "Checking"), (" Checking ", "checking"), ("Checking", "  checking\t"), ("Checking\n", "checking")]:
+        artifact = _record([_nav(), _select(1, recorded, "select:nth-of-type(1)")], {"account": declared})
+        assert [s.value_template for s in _selects(artifact)] == ["{account}"], (recorded, declared)
+        assert {i.name for i in artifact.inputs} == {"account"}, (recorded, declared)
 
-
-def test_param_match_is_case_insensitive():
-    for recorded, declared in [("Checking", "checking"), ("Savings", "savings"), ("checking", "Checking")]:
-        template, inputs = _record_single_select(recorded, declared)
-        assert template == "{account}", (recorded, declared)
-        assert inputs == {"account"}, (recorded, declared)
-
-
-def test_param_match_ignores_surrounding_whitespace():
-    for recorded, declared in [(" Checking ", "checking"), ("Checking", "  checking\t"), ("Checking\n", "checking")]:
-        template, inputs = _record_single_select(recorded, declared)
-        assert template == "{account}", (recorded, declared)
-        assert inputs == {"account"}, (recorded, declared)
-
-
-def test_param_match_rejects_genuinely_different_strings():
-    # different word, a substring of the recorded value, and interior whitespace
-    # (only *surrounding* whitespace is normalized) must all stay unmatched
+    # ...but nothing fuzzier: a different word, a substring, and interior whitespace must stay unmatched
     for recorded, declared in [("Savings", "checking"), ("Checking", "check"), ("Checking Plus", "checking"), ("Check ing", "checking")]:
-        template, inputs = _record_single_select(recorded, declared)
-        assert template == recorded, (recorded, declared)
-        assert inputs == set(), (recorded, declared)
+        artifact = _record([_nav(), _select(1, recorded, "select:nth-of-type(1)")], {"account": declared})
+        assert [s.value_template for s in _selects(artifact)] == [recorded], (recorded, declared)
+        assert artifact.inputs == [], (recorded, declared)
+
+    unrelated = _record(
+        [
+            _nav(),
+            StepLog(index=1, action="fill", rationale="enter id", ref="a", element_name="Member", value="10001", target=_target("Member"), ok=True),
+            StepLog(index=2, action="fill", rationale="enter memo", ref="b", element_name="Memo", value="Rent", target=_target("Memo"), ok=True),
+        ],
+        {"member_id": "10001", "account": "checking"},
+    )
+    assert {s.description: s.value_template for s in unrelated.steps if s.action == ActionType.FILL} == {"enter id": "{member_id}", "enter memo": "Rent"}
+
+    # normalization must not collapse two same-valued controls onto one param
+    both = _record(
+        [_nav(), _select(1, "Checking", "tr:nth-of-type(1) > select"), _select(2, "Checking", "tr:nth-of-type(3) > select")],
+        {"from_account_type": "checking", "to_account_type": "checking"},
+    )
+    assert [s.value_template for s in _selects(both)] == ["{from_account_type}", "{to_account_type}"]
 
 
-def test_param_match_leaves_unrelated_values_literal():
+def test_a_declared_value_embedded_in_a_locator_or_frame_chain_is_templated_too():
+    """A locator can embed a declared input, like an iframe src built from a member id. Untemplated,
+    another member would read the wrong frame."""
+    frame = LocatorCandidate(strategy=LocatorStrategy.CSS_PATH, value={"css": 'iframe[src*="/widget/42/panel"]'})
+    assert _templatize_candidate(frame, {"widget_id": "42"}).value["css"] == 'iframe[src*="/widget/{widget_id}/panel"]'
+
+    target = Target(candidates=[LocatorCandidate(strategy=LocatorStrategy.TEXT, value={"text": "$99.00"})], frame_chain=[[frame]])
+    templated = _templatize_target(target, {"widget_id": "42"})
+    assert templated.frame_chain[0][0].value["css"] == 'iframe[src*="/widget/{widget_id}/panel"]'
+    assert templated.candidates[0].value["text"] == "$99.00"  # unrelated text untouched
+
+    coords = LocatorCandidate(strategy=LocatorStrategy.COORDINATES, value={"x": 100, "y": 42})
+    assert _templatize_candidate(coords, {"widget_id": "42"}).value == {"x": 100, "y": 42}  # numbers are never templated
+    arbitrary = LocatorCandidate(strategy=LocatorStrategy.CSS_PATH, value={"css": "td[data-order='ORD-7788']"})
+    assert _templatize_candidate(arbitrary, {"order_reference": "ORD-7788"}).value["css"] == "td[data-order='{order_reference}']"
+    assert _templatize_target(None, {"widget_id": "42"}) is None
+
+    # end to end through the recorder
+    real = Target(
+        candidates=[LocatorCandidate(strategy=LocatorStrategy.TEXT, value={"text": "$1204.09"})],
+        frame_chain=[[LocatorCandidate(strategy=LocatorStrategy.CSS_PATH, value={"css": 'iframe[src*="/member/10001/balance-frame"]'})]],
+    )
+    artifact = _record(
+        [
+            StepLog(index=0, action="navigate", rationale="start", url_before="", url_after=f"{BASE}/member/10001", ok=True),
+            StepLog(index=1, action="read_text", rationale="read savings", element_name="$1204.09", target=real, ok=True),
+        ],
+        {"member_id": "10001"},
+        outputs={"savings_balance": "$1204.09"},
+    )
+    read_step = next(s for s in artifact.steps if s.action == ActionType.READ_TEXT)
+    assert read_step.target.frame_chain[0][0].value["css"] == 'iframe[src*="/member/{member_id}/balance-frame"]'
+
+
+def test_inputs_declared_by_discovery_template_their_steps_even_when_redacted_and_the_goal_becomes_a_template():
+    """Discovery's proven inputs arrive with param_binding. A redacted step still becomes a {param},
+    and no raw or demo value reaches the artifact."""
+    ssn = "123-45-6789"
+    goal = f"Update address of member 10001 to 555 W Washington blvd chicago, SSN {ssn}"
+    bound = lambda index, value, name, binding: StepLog(  # noqa: E731
+        index=index, action="fill", rationale="fill", ref=f"f0e{index}", element_name=name, value=value,
+        target=_target(name), ok=True, param_binding=binding,
+    )
     steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(index=1, action="fill", rationale="enter id", ref="f0e0", element_name="Member", value="10001", target=_target("Member"), ok=True),
-        StepLog(index=2, action="fill", rationale="enter memo", ref="f0e1", element_name="Memo", value="Rent", target=_target("Memo"), ok=True),
+        _nav(),
+        bound(1, "10001", "e.g. 10001", "member_id"),
+        bound(2, "555 W Washington blvd chicago", "Mailing Address:", "address"),
+        bound(3, "[REDACTED]", "SSN", "ssn"),
     ]
     result = DiscoveryResult(
-        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={}, steps=steps,
-        goal="g", target_url="http://127.0.0.1:8000/", started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
+        run_id="d", success=True, outcome="done", summary="", outputs={}, steps=steps, goal=goal, target_url=BASE + "/",
+        started_at="t0", ended_at="t1", evidence_dir="/tmp/e",
+        inputs={"member_id": "10001", "address": "555 W Washington blvd chicago", "ssn": ssn},
+        input_descriptions={"member_id": "The member whose contact info changes", "address": "The new mailing address"},
+        success_text="Contact information updated",
     )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(result, "x", "desc", {"member_id": "10001", "account": "checking"}, target_app)
 
-    fills = {s.description: s.value_template for s in artifact.steps if s.action == ActionType.FILL}
-    assert fills["enter id"] == "{member_id}"
-    assert fills["enter memo"] == "Rent"
-    assert {i.name for i in artifact.inputs} == {"member_id"}
+    artifact = record_artifact(result, "update-address", "desc", {}, APP)
 
+    assert [s.value_template for s in artifact.steps if s.action == ActionType.FILL] == ["{member_id}", "{address}", "{ssn}"]
+    described = {i.name: (i.description, i.example, i.type.value) for i in artifact.inputs}
+    assert described["member_id"] == ("The member whose contact info changes", "10001", "number")
+    assert described["ssn"][1] == "[REDACTED]" and described["ssn"][0] == "Value for ssn."
+    assert artifact.goal_template == "Update address of member {member_id} to {address}, SSN {ssn}"
+    # the success phrase the agent saw is the checkpoint, not the URL path
+    assert (artifact.final_checkpoint.kind.value, artifact.final_checkpoint.value) == ("text_contains", "Contact information updated")
+    dumped = artifact.model_dump_json()
+    assert ssn not in dumped  # a sensitive value is never persisted: not as a step value, an example, or in the goal
+    assert "555 W Washington" not in dumped  # a street address is PII: not a step value, a locator, or even the example
+    assert described["address"][1] == "[REDACTED] chicago"
 
-def test_param_match_normalization_keeps_two_same_valued_controls_distinct():
-    steps = [
-        StepLog(index=0, action="navigate", rationale="start", url_before="", url_after="http://127.0.0.1:8000/", ok=True),
-        StepLog(index=1, action="select", rationale="from", ref="a", element_name="From Account:", value="Checking",
-                target=_target_with_css("Account", "tr:nth-of-type(1) > select"), ok=True),
-        StepLog(index=2, action="select", rationale="to", ref="b", element_name="To Account:", value="Checking",
-                target=_target_with_css("Account", "tr:nth-of-type(3) > select"), ok=True),
-    ]
-    result = DiscoveryResult(
-        run_id="discovery_test", success=True, outcome="done", summary="done", outputs={}, steps=steps,
-        goal="g", target_url="http://127.0.0.1:8000/", started_at="t0", ended_at="t1", evidence_dir="/tmp/evidence_test",
-    )
-    target_app = TargetApp(app_id="cu-servicing-console", base_url="http://127.0.0.1:8000", entry_path="/")
-    artifact = record_artifact(result, "x", "desc", {"from_account": "checking", "to_account": "checking"}, target_app)
-
-    selects = [s for s in artifact.steps if s.action == ActionType.SELECT]
-    assert [s.value_template for s in selects] == ["{from_account}", "{to_account}"]
-    assert {i.name for i in artifact.inputs} == {"from_account", "to_account"}
+    # the goal template placeholders, in the forms a goal actually writes values
+    assert templatize_goal("Create a $12,500 auto loan for member 20001", {"loan_amount": "12500", "member_id": "20001"}) == "Create a ${loan_amount} auto loan for member {member_id}"
+    assert templatize_goal("from checking to checking", {"from_account_type": "checking", "to_account_type": "checking"}) == "from {from_account_type} to {to_account_type}"
+    assert templatize_goal("member 10001's balance", {"member_id": "1000"}) == "member 10001's balance"  # never inside a longer token

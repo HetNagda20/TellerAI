@@ -1,19 +1,5 @@
-"""Turns a live Playwright page (main frame + nested iframes) into a compact,
-LLM-readable snapshot of "things you can act on or read", and can resolve a
-snapshot ref back into a real Playwright Locator.
-
-This is deliberately not Playwright's built-in accessibility snapshot: we
-need every perceived element to carry enough information to (a) act on it
-now, during discovery, and (b) serialize into ranked LocatorCandidates that
-can be re-resolved in a fresh browser session during replay. A raw
-accessibility tree gives you (a) but not a clean path to (b).
-
-Name/role computation intentionally mirrors what a sighted operator (or a
-screen reader) would infer from an ugly, table-based, no-test-id page:
-label associations, placeholders, button values, and finally trimmed inner
-text. Never element ids or class names, because the target app does not
-reliably have them.
-"""
+"""Turns a live page (and its iframes) into a compact snapshot of what can be acted on or read, and
+resolves refs back to locators for replay."""
 
 from __future__ import annotations
 
@@ -23,19 +9,12 @@ from playwright.sync_api import Frame, Locator, Page
 
 from artifact.schema import LocatorCandidate, LocatorStrategy, Target
 
-# Walks `document` (or a sub-frame's document) and returns a JSON-serializable
-# list of perceived nodes: interactive controls, plus short standalone text
-# leaves (useful as read/checkpoint targets). Role/name computation is a
-# simplified accessible-name algorithm, not the full W3C spec.
+# Walks a document and returns a JSON list of interactive controls plus short text leaves. Names use
+# a simplified accessible-name algorithm, not the full W3C spec.
 _SNAPSHOT_JS = r"""
 () => {
-  // Returns {name, source}. `source` tells the caller whether `name` is
-  // something the browser's own accessibility engine would compute for this
-  // element (safe to search for via role+name, or by its own text) versus a
-  // borrowed guess (a neighboring label cell) that happens to describe this
-  // element but is NOT this element's text. Searching the page for that
-  // text would find the label, not the input. Only 'inferred_label' needs
-  // this distinction; every other source is part of the real accname chain.
+  // Returns {name, source}. `source` says whether the browser would compute this name itself,
+  // or whether it is a borrowed guess (a neighboring label) that isn't searchable text.
   function accessibleName(el) {
     const aria = el.getAttribute('aria-label');
     if (aria && aria.trim()) return { name: aria.trim(), source: 'aria' };
@@ -47,25 +26,20 @@ _SNAPSHOT_JS = r"""
     if (wrapping && wrapping.innerText.trim()) return { name: wrapping.innerText.trim(), source: 'label' };
     const placeholder = el.getAttribute('placeholder');
     if (placeholder && placeholder.trim()) return { name: placeholder.trim(), source: 'placeholder' };
-    if ('value' in el && el.tagName !== 'SELECT' && el.value && el.value.trim()) {
+    // Only a button-type input's value is its label. A text field's value is user data
+    // (an old address), so it falls through to the row label below.
+    if (el.tagName === 'INPUT' && ['submit', 'button', 'reset', 'image'].includes((el.getAttribute('type') || '').toLowerCase())
+        && el.value && el.value.trim()) {
       return { name: el.value.trim(), source: 'value' };
     }
-    // A <select>'s own innerText is its concatenated option list (e.g.
-    // "Checking\nSavings") -- identical for every same-shaped select on the
-    // page, so it can never distinguish one control from another. Skip it
-    // here the same way the value branch above already does, and fall
-    // through to the row-based inferred_label branch below, which reads the
-    // *distinct* neighboring label text instead. Generic to any legacy
-    // table-layout form with more than one same-shaped dropdown, not
-    // specific to any one app's field names.
-    if (el.tagName !== 'SELECT') {
+    // A <select>'s innerText is its whole option list, identical for every same-shaped select,
+    // so skip it and use the row label instead.
+    if (!['SELECT', 'INPUT', 'TEXTAREA'].includes(el.tagName)) {
       const text = (el.innerText || '').trim();
       if (text) return { name: text.slice(0, 80), source: 'own_text' };
     }
-    // Last resort: legacy table-layout forms often put the label in the
-    // preceding <td> of the same row with no programmatic association at
-    // all. A human operator reads it visually; we approximate that, but
-    // flag it as borrowed, since it is NOT this element's own text.
+    // Last resort: legacy forms put the label in the preceding <td> of the same row.
+    // Flagged as borrowed, since it is not this element's own text.
     const row = el.closest('tr');
     if (row) {
       const cell = el.closest('td');
@@ -177,10 +151,8 @@ _SNAPSHOT_JS = r"""
 """
 
 
-# Sources the real browser accessible-name computation would also produce,
-# safe to search for via get_by_role(name=...) or get_by_text(...). Anything
-# else (currently just 'inferred_label') is a borrowed guess: useful to show
-# a human/LLM, unsafe to use as a search key since it is another element's text.
+# Name sources a real browser would also produce, so they are safe to search by. Anything else (like
+# 'inferred_label') is a guess borrowed from another element.
 _TRUSTWORTHY_NAME_SOURCES = {"aria", "label", "placeholder", "value", "own_text"}
 
 
@@ -289,13 +261,8 @@ def snapshot(page: Page) -> Snapshot:
             chain.insert(0, frame_entry_css.get(cur, "iframe"))
             cur = cur.parent_frame
 
-        # Reading order, not DOM-query order: the JS walker emits every
-        # interactive element before any text leaf, which would otherwise put
-        # e.g. both "Checking/Savings" dropdowns of a transfer form back to
-        # back with their "From Account:"/"To Account:" labels many lines
-        # away. Sorting by (row, x), bucketing y so same-row elements do not
-        # get separated by sub-pixel jitter, reproduces how a human actually
-        # scans a table-laid-out page, so a label always precedes its field.
+        # Sort into reading order, not DOM order. Bucketing y avoids sub-pixel jitter, so a label
+        # always comes right before its field, like a person scanning the page.
         nodes_in_reading_order = sorted(
             data["nodes"], key=lambda n: (round(n["bbox"]["y"] / 12), n["bbox"]["x"])
         )

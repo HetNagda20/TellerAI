@@ -1,40 +1,13 @@
-"""Human-in-the-loop escalation and control transfer.
-
-Design: the automation runs in a headed browser, on purpose. That means
-handing control to a human does not require a co-browsing/screen-sharing
-console (explicitly out of scope); the same OS-level browser window
-Playwright has been driving is already visible and clickable. What this
-module makes real is the control-transfer model around that window:
-
-  LLM_CONTROL, escalate() -> HUMAN_CONTROL, human resumes -> LLM_CONTROL
-
-HandoffSession.state is the single source of truth for who is allowed to
-act on the page. agent/executor.py's _dispatch refuses to issue an
-LLM-driven action unless is_agent_allowed() is true, so this is an enforced
-invariant, not a convention.
-
-Two categories of escalation, kept structurally distinct:
-
-- Discovery-time ("stuck", "human_gesture", "human_requested"): a human can
-  take over, teach the agent something by acting directly on the page, and
-  what they did gets captured as a normal, replayable Step
-  (source="human_intervention") before control returns to the LLM.
-- Everything else ("risky_action_confirm", "replay_hard_failure",
-  "commit_verification_inconclusive"): a yes/no gate or an
-  operational-recovery notification. Neither teaches anything; replay must
-  never come out of an escalation with a modified artifact.
-
-The operator surface here is intentionally a bare CLI prompt plus an
-on-page banner (handoff/gesture.py), not a built console. What's real: the
-pause, the context handed over, the same live page, the resume signal, the
-captured actions, and a logged record of both.
-"""
+"""Human-in-the-loop escalation and control transfer. HandoffSession.state says who may act on the
+page, and the executor refuses LLM actions unless the agent is allowed. Gates never teach."""
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
+import re
+import select
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -42,6 +15,9 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from playwright.sync_api import Page
+
+from guardrails.redact import redact_obj, redact_text, redact_value
+from handoff.remote import devtools_link
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +29,11 @@ class SessionState(str, Enum):
 
 EscalationReason = Literal[
     "stuck", "risky_action_confirm", "replay_hard_failure", "human_requested", "human_gesture",
-    "commit_verification_inconclusive",
+    "commit_verification_inconclusive", "commit_retry_exhausted", "commit_duplicate_suspected",
 ]
 
-# Escalation reasons where a human taking over is teaching the discovery run
-# something; their actions get captured as replayable steps. The other
-# reasons are a gate or an operational notification, never a teaching moment.
+# Reasons where the human is teaching discovery something, so their actions get captured. Other
+# reasons are gates or notifications.
 DISCOVERY_HITL_REASONS = frozenset({"stuck", "human_gesture", "human_requested"})
 
 
@@ -70,6 +45,12 @@ class InterventionRequest:
     step_index: Optional[int] = None
     current_url: str = ""
     screenshot_path: Optional[str] = None
+    remote_link: str = ""
+    """A DevTools link to this run's live tab (see handoff/remote.py), for a person who cannot see the window.
+    Empty when remote debugging is off."""
+    page_summary: str = ""
+    """The start of the visible text on the page at the moment of escalation. A legacy app often renders a
+    review or result page from a POST to the same address, so the URL alone can look like the page before it."""
     context_snapshot: Optional[str] = None
     """The discovery agent's own view of the page at the moment it escalated,
     the same text the model itself was reasoning over. Populated for 'stuck'
@@ -101,20 +82,17 @@ class HandoffRecord:
 
 
 def _banner_context(request: InterventionRequest) -> str:
-    """Same reason/message already printed to the terminal, formatted for
-    the on-page banner: a real end user watching the browser never sees a
-    terminal, so this must be visible on the page itself. Leads with the goal
-    (or capability) this escalation is in service of, so a human approving or
-    taking over can actually judge whether the action matches what was asked,
-    not just read the action in isolation."""
+    """The reason and message for the on-page banner, led by the goal or capability, so a human can
+    judge whether the action matches what was asked."""
     return f"Goal: {request.goal_or_capability}\n\n[{request.reason}] {request.message}"
 
 
 class HandoffSession:
     """One per live Playwright page. Owns the state machine and the evidence trail."""
 
-    def __init__(self, page: Page, run_id: str, evidence_dir: Path, operator=None):
+    def __init__(self, page: Page, run_id: str, evidence_dir: Path, operator=None, remote_debug_port: Optional[int] = None):
         self.page = page
+        self.remote_debug_port = remote_debug_port
         self.run_id = run_id
         self.evidence_dir = evidence_dir
         self.state = SessionState.LLM_CONTROL
@@ -127,13 +105,8 @@ class HandoffSession:
         return self.state is SessionState.LLM_CONTROL
 
     def escalate_via_gesture(self, request: InterventionRequest, controller) -> HandoffRecord:
-        """Same state machine and evidence trail as escalate(), but for a
-        human who has already taken control by clicking/typing in the live
-        page directly. Waits on the page's own banner instead of a CLI
-        prompt, with the same Resume/Restart/End Run choices escalate()'s
-        take_control path offers, since by the time this fires the human is
-        already acting in the browser and may decide this run needs to
-        restart or stop entirely, not just resume."""
+        """Same state machine and evidence as escalate(), for a human already acting in the page.
+        Waits on the page banner, with the same Resume, Restart and End Run choices."""
         self._save_context(request)
         logger.warning("escalation raised reason=%s run_id=%s", request.reason, self.run_id)
         self.state = SessionState.HUMAN_CONTROL
@@ -212,76 +185,134 @@ class HandoffSession:
         except Exception:
             pass
         request.current_url = self.page.url
+        request.remote_link = devtools_link(self.page, self.remote_debug_port)
+        try:
+            text = re.sub(r"\s+", " ", self.page.inner_text("body", timeout=1500)).strip()
+            request.page_summary = redact_text(text[:160])
+        except Exception:
+            pass
 
     def _append_log(self, record: HandoffRecord) -> None:
         log_path = self.evidence_dir / "handoff_log.jsonl"
         with open(log_path, "a") as f:
             f.write(
                 json.dumps(
-                    {
-                        "request": vars(record.request),
-                        "outcome": record.outcome,
-                        "human_note": record.human_note,
-                        "resumed_at": record.resumed_at,
-                        "resume": record.resume,
-                        "captured_actions": record.captured_actions,
-                    }
+                    redact_obj(
+                        {
+                            "request": vars(record.request),
+                            "outcome": record.outcome,
+                            "human_note": record.human_note,
+                            "resumed_at": record.resumed_at,
+                            "resume": record.resume,
+                            "captured_actions": [_redact_action(a) for a in record.captured_actions],
+                        }
+                    )
                 )
                 + "\n"
             )
 
 
-class _CliOperator:
-    """Bare/mock operator surface: a blocking terminal prompt, with an
-    on-page banner racing it whenever a GestureController is available.
-    Intentionally minimal; what it exercises for real is the control-transfer
-    model, not a polished UI.
-    """
+def _redact_action(action: dict) -> dict:
+    """A captured human action, with its typed value redacted by the field's name as well as by pattern."""
+    name = (action.get("descriptor") or {}).get("name", "")
+    value = action.get("value")
+    return {**action, "value": redact_value(name, value) if value is not None else None}
 
-    def __init__(self, gesture=None, capture: bool = True):
+
+class _TerminalPrompt:
+    """Terminal questions answered without a thread. A blocked input() in a spare thread cannot be cancelled,
+    so an abandoned one kept reading the keyboard and could stall the next prompt (and the banner with it).
+    Here the one thread that drives the browser polls stdin between browser events, so nothing is left behind."""
+
+    def __init__(self, *questions: str):
+        self.questions, self.answers = list(questions), []
+        self._ask()
+
+    def _ask(self) -> None:
+        if len(self.answers) < len(self.questions):
+            print(self.questions[len(self.answers)], end="", flush=True)
+
+    @staticmethod
+    def _ready() -> bool:
+        try:
+            return bool(select.select([sys.stdin], [], [], 0)[0])
+        except (ValueError, OSError):  # no usable terminal (captured, closed): never ready
+            return False
+
+    def poll(self) -> bool:
+        """Reads any waiting line. True once every question has an answer."""
+        while len(self.answers) < len(self.questions) and self._ready():
+            line = sys.stdin.readline()
+            if line == "":  # end of input: nobody is typing
+                break
+            self.answers.append(line.strip())
+            self._ask()
+        return len(self.answers) == len(self.questions)
+
+
+def _where_to_look(request: InterventionRequest, headless: bool, port: Optional[int]) -> list[str]:
+    """Where the person should look, for a window on this computer and for a DevTools link. An app address
+    cannot reopen a POST-rendered page and is not a link to the session, so it is only a last resort."""
+    page = f"Page:    {request.page_summary}"
+    tunnel = f"(from another machine, tunnel to port {port} first: ssh -L {port}:127.0.0.1:{port} <this-host>)" if port else ""
+    lines: list[str] = []
+    if not headless:
+        lines += [
+            "Look at the automated Chromium window (the test browser) on this computer: it is waiting for you,",
+            "and the banner on its page has the details and the buttons.",
+        ]
+    elif request.remote_link:
+        lines += ["This run has no visible window (headless)."]
+    if request.remote_link:
+        lines += [
+            "To see and operate the live page remotely, open this link in a browser on this computer:" if headless
+            else "No window in front of you? Open this link in a browser on this computer to see and operate the same page:",
+            f"  {request.remote_link}",
+            f"  {tunnel}",
+            "  The banner on that page has the buttons; you can also answer here.",
+        ]
+    if headless and not request.remote_link:
+        lines += [f"URL:     {request.current_url}", "No browser window is open and remote debugging is off (headless run): answer here."]
+    return lines + [page]
+
+
+class _CliOperator:
+    """A bare operator surface: a blocking terminal prompt, raced by an on-page banner when a
+    GestureController exists. It exercises control transfer, not a polished UI."""
+
+    def __init__(self, gesture=None, capture: bool = True, headless: bool = False, remote_debug_port: Optional[int] = None):
         self.gesture = gesture
-        # replay passes capture=False: this operator's on-page banner is used there
-        # purely to notify a real end user, never to arm the capture listener. Keeps
-        # handoff/gesture.py's capture mechanism reachable only from discovery,
-        # regardless of what operator replay constructs.
+        self.headless = headless
+        self.remote_debug_port = remote_debug_port
+        # Replay passes capture=False, so its banner only notifies the end user and never arms
+        # capture. That keeps capture reachable from discovery only.
         self.capture = capture
+
+    def _print_where(self, request: InterventionRequest) -> None:
+        for line in _where_to_look(request, headless=self.headless, port=self.remote_debug_port):
+            print(line)
 
     def confirm(self, request: InterventionRequest) -> tuple[bool, str]:
         print("\n=== INTERVENTION REQUESTED (confirmation) ===")
         print(f"Goal:    {request.goal_or_capability}")
         print(f"Reason:  {request.reason}")
         print(f"Context: {request.message}")
-        print(f"URL:     {request.current_url}")
+        self._print_where(request)
 
         if self.gesture is None:
             ans = input("Approve this action? [y/N]: ").strip().lower()
             return ans == "y", f"operator answered {ans!r}"
 
-        # Race two channels: a background thread blocked on stdin (touches no
-        # Playwright API, a second thread calling into Playwright's sync API
-        # breaks it), and the page's own Approve/Deny banner, polled from this
-        # (the only) thread allowed to drive the browser. Whichever resolves first
-        # wins; the thread is a daemon so an abandoned prompt cannot block exit.
-        cli_result: dict = {}
-
-        def _read_stdin():
-            try:
-                ans = input("Approve this action? [y/N] (or use the on-page banner): ").strip().lower()
-                cli_result["approved"] = ans == "y"
-                cli_result["note"] = f"operator answered {ans!r} (terminal)"
-            except Exception:
-                pass  # stdin unavailable/closed, or the banner already won and this got abandoned
-
-        thread = threading.Thread(target=_read_stdin, daemon=True)
-        thread.start()
-
+        # Race two channels, both polled from this one thread: the terminal and the page banner. First answer wins.
+        terminal = _TerminalPrompt("Approve this action? [y/N] (or use the on-page banner): ")
         self.gesture.show_confirm_banner(_banner_context(request))
-        while "approved" not in cli_result and self.gesture.poll_confirm_result() is None:
+        while self.gesture.poll_confirm_result() is None and not terminal.poll():
             self.gesture.pump(0.2)
 
         self.gesture.hide_confirm_banner()
-        if "approved" in cli_result:
-            return cli_result["approved"], cli_result["note"]
+        if self.gesture.poll_confirm_result() is None:
+            answer = terminal.answers[0].lower()
+            return answer == "y", f"operator answered {answer!r} (terminal)"
         approved = self.gesture.poll_confirm_result()
         return approved, f"operator {'approved' if approved else 'denied'} via on-page banner"
 
@@ -290,7 +321,7 @@ class _CliOperator:
         print(f"Goal:    {request.goal_or_capability}")
         print(f"Reason:  {request.reason}")
         print(f"Context: {request.message}")
-        print(f"URL:     {request.current_url}")
+        self._print_where(request)
         if request.context_snapshot:
             print(f"What the agent saw:\n{request.context_snapshot}")
         print("The automation has paused. The browser window is now yours.")
@@ -303,9 +334,8 @@ class _CliOperator:
                 return note or "(no note provided)", False, True, []
             return note or "(no note provided)", ans == "y", False, []
 
-        # Same race pattern as confirm(). Structured action capture is armed for
-        # the whole window regardless of which channel answers, except on replay's
-        # path (self.capture=False), where it is never armed at all, by construction.
+        # Same race as confirm(). Action capture is armed the whole window, except on replay
+        # (capture=False), where it never is.
         if self.capture:
             self.gesture.start_capturing()
         # show_cancel=True: unlike escalate_via_gesture's call, this has a real
@@ -313,33 +343,23 @@ class _CliOperator:
         # not just Resume.
         self.gesture.show_pause_banner(_banner_context(request), show_cancel=True)
 
-        cli_result: dict = {}
-
-        def _read_stdin():
-            try:
-                note = input("What did you do? (one line, for the record, or use the on-page banner): ").strip()
-                ans = input("Let the agent try again, restart the run from the beginning, or end it? [y/r/N]: ").strip().lower()
-                cli_result["note"] = note or "(no note provided)"
-                cli_result["restart"] = ans == "r"
-                cli_result["resume"] = False if cli_result["restart"] else ans == "y"
-            except Exception:
-                pass
-
-        thread = threading.Thread(target=_read_stdin, daemon=True)
-        thread.start()
-
-        while "resume" not in cli_result and self.gesture.poll_resume_result() is None:
+        terminal = _TerminalPrompt(
+            "What did you do? (one line, for the record, or use the on-page banner): ",
+            "Let the agent try again, restart the run from the beginning, or end it? [y/r/N]: ",
+        )
+        while self.gesture.poll_resume_result() is None and not terminal.poll():
             self.gesture.pump(0.2)
 
         captured = self.gesture.stop_capturing() if self.capture else []
         self.gesture.hide_pause_banner()
 
-        if "resume" in cli_result:
-            return cli_result["note"], cli_result["resume"], cli_result["restart"], captured
+        if self.gesture.poll_resume_result() is None:
+            note, ans = terminal.answers[0] or "(no note provided)", terminal.answers[1].lower()
+            restart = ans == "r"
+            return note, False if restart else ans == "y", restart, captured
         note = self.gesture.poll_resume_result()
         restart = self.gesture.poll_restart_requested()
-        # Resume -> True, End Run -> False, Restart -> resume forced False (restart
-        # takes priority, checked by the caller): the banner's buttons are real
-        # choices now, not "clicking anything means continue".
+        # Resume gives True, End Run gives False, and Restart forces resume False (the caller checks
+        # restart first). The buttons are real choices now.
         resume = False if restart else bool(self.gesture.poll_resume_decision())
         return note, resume, restart, captured

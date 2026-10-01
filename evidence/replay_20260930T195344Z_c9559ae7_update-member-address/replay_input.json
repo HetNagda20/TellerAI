@@ -1,0 +1,8 @@
+{
+  "capability_id": "update-member-address",
+  "version": "1.0.0",
+  "params": {
+    "member_id": "20001",
+    "address": "[REDACTED] Chicago"
+  }
+}

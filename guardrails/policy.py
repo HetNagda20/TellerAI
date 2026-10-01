@@ -1,22 +1,5 @@
-"""Risk classification: separates safe/reversible actions from ones that need
-a human to sign off before they happen.
-
-Heuristic, on purpose: real deployments would let a reviewer annotate risk
-per-step when approving an artifact (see the `status: draft -> approved`
-field on Artifact, and the "Confidence & approval" stretch goal). For this
-project the heuristic is transparent and auditable: any click whose target
-name matches an irreversible/state-changing verb is `confirm`; navigation
-outside the allowlist is `blocked`; everything else is `safe`.
-
-Patterns are deliberately specific rather than bare domain-action verbs. An
-earlier version included a standalone \btransfer\b, which, found during a
-real discovery run, flagged "Review Transfer" (a safe, reversible step in a
-two-step review-then-confirm flow) as needing human sign-off, not just the
-actual commit button "Confirm Transfer". A bare "submit" would have the same
-problem the moment any safe form uses that word for its button. The fix is
-to require the pattern to name the commit action, not just its domain
-("confirm ...", or a specific always-final verb+object like "delete member").
-"""
+"""Risk classification. Clicks matching an irreversible verb are `confirm`, navigation off the
+allowlist is `blocked`, the rest is `safe`. Patterns name the commit action, not just the domain."""
 
 from __future__ import annotations
 

@@ -1,0 +1,29 @@
+{
+  "run_id": "discovery_20260930T195003Z",
+  "success": true,
+  "outcome": "done",
+  "summary": "Successfully transferred $30 from Member 10001 (Alice Johnson) Checking account to Member 20001 (Carol Nguyen) Checking account. The transaction was confirmed with reference TXF-7009.",
+  "outputs": {
+    "confirmation_number": "TXF-7009"
+  },
+  "goal": "Transfer $30 from Checking for member 10001 to Checking for member 20001 and reach the transfer confirmation.",
+  "target_url": "http://127.0.0.1:8000/",
+  "started_at": "2026-09-30T19:50:03.799658+00:00",
+  "ended_at": "2026-09-30T19:50:31.598856+00:00",
+  "evidence_dir": "evidence/discovery_20260930T195003Z",
+  "inputs": {
+    "from_member_id": "10001",
+    "from_account_type": "Checking",
+    "to_member_id": "20001",
+    "to_account_type": "Checking",
+    "amount": "30"
+  },
+  "input_descriptions": {
+    "from_member_id": "Source member ID for the transfer",
+    "from_account_type": "Source account type",
+    "to_member_id": "Destination member ID for the transfer",
+    "to_account_type": "Destination account type",
+    "amount": "Transfer amount in USD"
+  },
+  "success_text": "Transfer completed."
+}

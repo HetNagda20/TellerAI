@@ -1,0 +1,62 @@
+{
+  "kind": "hard_failure",
+  "capability_id": "transfer-funds",
+  "version": "1.0.0",
+  "run_id": "replay_20260930T195430Z_cee2a435",
+  "outputs": {},
+  "business_outcome_name": null,
+  "business_outcome_description": null,
+  "business_outcome_source": null,
+  "failure": {
+    "step_index": 6,
+    "action": "select",
+    "expected": "one of the recorded locator candidates for step 6",
+    "observed": "No locator candidate resolved (tried: ['css_path']); errors=[]",
+    "message": "No locator candidate resolved.",
+    "observed_page": "HTTP 200 http://127.0.0.1:8000/member/12345/transactions/new/transfer | Member Servicing Console v3 Accounts [ Transactions ] Loans Cards Transfer Funds - From Member 12345 (Het Nagda) From Account: Checking Savings To Member ID: To Account: Checking Savings Amount ($): Back to Transaction Type"
+  },
+  "recovered_via_commit_verification": false,
+  "commit_attempts": 1,
+  "unattended_risky_steps": [],
+  "steps_executed": 7,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 4,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 5,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    }
+  ],
+  "escalations": [],
+  "evidence_dir": "evidence/replay_20260930T195430Z_cee2a435_transfer-funds"
+}

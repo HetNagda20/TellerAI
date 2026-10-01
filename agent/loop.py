@@ -1,39 +1,30 @@
-"""The goal-driven observe, decide, act loop.
-
-Runs a real, headed Playwright browser against the target. Every decision
-comes from Claude, grounded in the accessibility-style snapshot (see
-perception.py), never from hardcoded logic. The loop stops when the model
-calls `done` (goal met), `give_up` (routed to human escalation as a "stuck"
-event), or a hard stopping condition (max steps or wall-clock timeout).
-
-Human escalation (give_up, a proactive gesture, or a file-touch request) is
-learning, not just a pause: whatever the human does on the live page while
-they have control is captured as real Step-shaped entries
-(source="human_intervention", see agent/executor.py's record_human_action)
-and merged into the same executor.steps list the LLM's own actions land in,
-in the order everything actually happened. The artifact recorder does not
-need to know which steps came from which source to build a correct,
-replayable sequence.
-"""
+"""The goal-driven observe, decide, act loop. Claude picks every action. It ends on done, give_up
+(sent to a human), max steps or timeout. Human actions become steps too."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 import time
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from playwright.sync_api import sync_playwright
 
 from agent.executor import Executor, StepLog
 from agent.llm import make_client, next_action
+from artifact.grounding import is_grounded, normalize, same_value
+from artifact.pagetext import collapse, page_text, text_present
+from artifact.schema import LocatorStrategy
 from guardrails.allowlist import Allowlist
-from guardrails.redact import redact_text
+from guardrails.redact import redact_obj, redact_text, redact_value
 from handoff.gesture import GestureController
+from handoff.remote import free_loopback_port, launch_args, remote_debugging_enabled
 from handoff.session import HandoffSession, InterventionRequest, _CliOperator
 
 logger = logging.getLogger(__name__)
@@ -41,7 +32,7 @@ logger = logging.getLogger(__name__)
 EVIDENCE_ROOT = Path(__file__).resolve().parent.parent / "evidence"
 MAX_STEPS_DEFAULT = 30
 TIMEOUT_S_DEFAULT = 300
-REPEAT_VISIT_WARNING_THRESHOLD = 2  # nudge on the 3rd visit to the same URL this run
+STUCK_WARNING_THRESHOLD = 2  # warn from the 3rd arrival at one screen, or the 3rd identical action on it
 
 
 @dataclass
@@ -57,42 +48,165 @@ class DiscoveryResult:
     started_at: str
     ended_at: str
     evidence_dir: str
+    inputs: dict[str, str] = field(default_factory=dict)
+    """Goal-supplied values the agent declared at `done`, name -> RAW value, in memory only:
+    the evidence writer redacts these, and the recorder persists only {name} placeholders."""
+    input_descriptions: dict[str, str] = field(default_factory=dict)
+    success_text: str = ""
+    """The phrase the agent saw on the final page that only a successful run shows. Replay's checkpoint."""
+
+
+def _screen_fingerprint(page) -> str:
+    """What the screen shows: its URL plus its visible text, frames included. The URL alone cannot tell screens
+    apart in an app that serves every screen from one address."""
+    return hashlib.sha1(f"{page.url}|{page_text(page)}".encode()).hexdigest()[:12]
+
+
+class _StuckWatch:
+    """Warns the model that it is going in circles, from what the screen shows and not from its URL.
+
+    Two signals, each from the third occurrence on: arriving at the same screen again after being somewhere else
+    (wandering among pages), and repeating the same action on a screen that has not changed (a click that does
+    nothing). Acting on one screen many times, like filling a form's fields, is neither: those are different
+    actions and arrive at nothing new.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.arrivals: Counter[str] = Counter()
+        self.repeats: Counter[tuple] = Counter()
+        self.last: Optional[str] = None
+
+    def observe(self, page, tool: str, args: dict) -> Optional[str]:
+        try:
+            screen = _screen_fingerprint(page)
+        except Exception:  # mid-navigation: no reading, no warning
+            return None
+        if screen != self.last:
+            self.arrivals[screen] += 1
+            self.last = screen
+        action = (screen, tool, json.dumps(args, sort_keys=True, default=str))
+        self.repeats[action] += 1
+        if self.repeats[action] > STUCK_WARNING_THRESHOLD:
+            return (
+                f"You have now tried this same action {self.repeats[action]} times on a screen that has not changed. "
+                "If there is no actionable path from here toward the goal, stop and call give_up now."
+            )
+        if self.arrivals[screen] > STUCK_WARNING_THRESHOLD:
+            return (
+                f"You have now come back to this same screen {self.arrivals[screen]} times this run. If there is no "
+                "actionable path from here toward the goal, stop exploring alternatives and call give_up now."
+            )
+        return None
 
 
 def _run_id() -> str:
     return datetime.now(timezone.utc).strftime("discovery_%Y%m%dT%H%M%SZ")
 
 
+def _success_text_error(page, success_text: str, outputs: dict[str, Any], input_values) -> str | None:
+    """Why a claimed success phrase can't be trusted, or None. It must be short, really on the page now, and
+    constant across requests: no output value, no input value, no long generated-looking number."""
+    phrase = collapse(success_text or "")
+    if not phrase:
+        return "success_text is empty"
+    if len(phrase) > 80:
+        return "success_text is too long; give a short phrase"
+    if not text_present(page, phrase):
+        return f"success_text {phrase!r} is not visible on the current page"
+    if any(collapse(str(v)) and collapse(str(v)) in phrase for v in outputs.values()):
+        return "success_text contains a generated output value, which changes on every run"
+    lowered = phrase.lower()
+    if any(len(collapse(str(v))) >= 3 and collapse(str(v)).lower() in lowered for v in input_values):
+        return "success_text contains one of this request's input values, so it would fail for any other request"
+    if re.search(r"\d{5,}", phrase):
+        return "success_text contains a long number that looks generated; use the surrounding words"
+    return None
+
+
 def _unproven_outputs(steps: list[StepLog], outputs: dict[str, Any]) -> list[str]:
-    """Which claimed `done` output keys have no deterministic provenance.
-
-    The LLM can see a value in the accessibility snapshot and write it into
-    done's outputs without ever calling read_text. artifact/recorder.py
-    already refuses to declare an OutputField with no read_text step behind
-    it; this closes the same gap one layer earlier, at the moment discovery
-    itself decides the goal is complete, so the model gets a chance to fix
-    it instead of silently losing the value later.
-
-    Two kinds of claimed output, matched deterministically against the run's
-    own step history, nothing hardcoded to a specific field name:
-
-    - An input echo: this exact value is something the agent itself already
-      wrote onto the page via an earlier successful fill/select step.
-    - An extracted output: anything else. It must match the exact text a
-      successful read_text step actually returned, or it has no
-      deterministic provenance at all.
-    """
+    """Which claimed `done` outputs have no proof. An output must echo a value the agent filled in,
+    or match exactly what a read_text step returned."""
     echoed_values = {s.value for s in steps if s.action in ("fill", "select") and s.ok and s.value is not None}
     read_values = {s.element_name for s in steps if s.action == "read_text" and s.ok and s.element_name is not None}
     return [key for key, value in outputs.items() if value not in echoed_values and value not in read_values]
 
 
+_INPUT_NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _declared_inputs(raw: Any) -> dict[str, tuple[str, str]]:
+    """The `inputs` argument of `done`, coerced to name -> (value, description). Tolerates a bare
+    string value in place of {"value", "description"}."""
+    declared: dict[str, tuple[str, str]] = {}
+    for name, entry in (raw or {}).items():
+        if isinstance(entry, dict):
+            declared[str(name)] = (str(entry.get("value", "")), str(entry.get("description", "")))
+        else:
+            declared[str(name)] = (str(entry), "")
+    return declared
+
+
+def _control_key(step: StepLog) -> str:
+    if step.target is not None:
+        for c in step.target.candidates:
+            if c.strategy == LocatorStrategy.CSS_PATH:
+                return str(c.value.get("css", f"#{step.index}"))
+    return f"#{step.index}"
+
+
+def _check_declared_inputs(
+    steps: list[StepLog], raw_values: dict[int, str], goal: str, declared: dict[str, tuple[str, str]]
+) -> tuple[Optional[str], dict[int, str]]:
+    """Proves declared inputs: each must appear in the goal and match a value the run applied, and
+    no applied goal value may go undeclared. Returns (error or None, bindings)."""
+    by_index = {s.index: s for s in steps}
+    applied = [
+        (idx, raw)
+        for idx, raw in sorted(raw_values.items())
+        if idx in by_index and by_index[idx].ok and by_index[idx].action in ("fill", "select")
+    ]
+    # A control re-filled with the same value is one binding; its LAST value is its final state.
+    groups: dict[tuple[str, str], list[int]] = {}
+    last_value: dict[str, str] = {}
+    for idx, raw in applied:
+        control = _control_key(by_index[idx])
+        groups.setdefault((control, normalize(raw)), []).append(idx)
+        last_value[control] = normalize(raw)
+
+    errors: list[str] = []
+    claimed: dict[tuple[str, str], str] = {}
+    for name, (value, _description) in declared.items():
+        if not _INPUT_NAME_RE.fullmatch(name):
+            errors.append(f"input name {name!r} must be a snake_case identifier such as member_id")
+            continue
+        if not is_grounded(value, goal):
+            errors.append(f"input {name}={value!r} does not appear in the goal text; declare only values the goal itself supplied")
+            continue
+        match = next((k for k, idxs in groups.items() if k not in claimed and same_value(raw_values[idxs[0]], value)), None)
+        if match is None:
+            errors.append(f"input {name}={value!r} was never applied to any control by a fill or select (each control's value supports one input)")
+            continue
+        claimed[match] = name
+
+    for (control, norm_value), idxs in groups.items():
+        if (control, norm_value) in claimed or last_value[control] != norm_value:
+            continue  # declared, or overwritten later on the same control
+        raw = raw_values[idxs[0]]
+        if is_grounded(raw, goal):
+            label = by_index[idxs[0]].element_name or "a field"
+            errors.append(f"you applied {raw!r}, a value from the goal, to {label!r} but did not declare it in `inputs`")
+
+    if errors:
+        return "; ".join(errors), {}
+    return None, {idx: claimed[key] for key, idxs in groups.items() if key in claimed for idx in idxs}
+
+
 def _record_captured_actions(executor: Executor, captured: list[dict]) -> str:
-    """Converts every action a human performed during an intervention into a
-    real StepLog (source="human_intervention"), in order, so a human-taught
-    action becomes part of the same sequence the recorder later turns into
-    artifact steps. Returns a short summary to fold into the next message to
-    the LLM."""
+    """Turns each action a human took during an intervention into a StepLog, in order. Returns a
+    short summary for the model's next message."""
     if not captured:
         return ""
     lines = []
@@ -109,13 +223,10 @@ def _record_captured_actions(executor: Executor, captured: list[dict]) -> str:
 
 
 def _restart_from_scratch(executor: Executor, goal: str, target_url: str) -> list[dict]:
-    """A human decided this attempt has gone wrong enough to start over, but
-    not so wrong the whole run should end. Same session, same run_id: wipes
-    the step log and the conversation, navigates back to the entry point, and
-    returns a fresh initial message, exactly what run_discovery() starts
-    with. The wall-clock deadline is untouched, so repeated restarts still
-    cannot outrun the original timeout."""
+    """Starts over in the same session and run_id: clears steps and conversation and returns to the
+    entry point. The deadline is not reset."""
     executor.steps.clear()
+    executor.raw_values.clear()
     nav = executor.navigate(target_url, rationale="Restart requested by a human operator.")
     return [
         {
@@ -137,11 +248,8 @@ def run_discovery(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     logger.info("discovery start run_id=%s goal=%r target=%s", run_id, goal, target_url)
 
-    # Touching this file from another terminal, at any point, pauses the run before
-    # its next step and hands control over, exactly like any other escalation.
-    # Checked once per step, not mid-step: cleanly interrupting a step already in
-    # flight would need real async cancellation, not worth it for a bare CLI
-    # operator surface.
+    # Touching this file from another terminal pauses the run before the next step and hands control
+    # to a human. Checked once per step, not mid-step.
     pause_flag_path = evidence_dir / "PAUSE_REQUESTED"
 
     allowlist = Allowlist.load()
@@ -149,6 +257,9 @@ def run_discovery(
 
     started_at = datetime.now(timezone.utc).isoformat()
     outcome, summary, outputs = "max_steps", "", {}
+    claimed_inputs: dict[str, str] = {}
+    input_descriptions: dict[str, str] = {}
+    success_text = ""
 
     print(f"Run ID: {run_id}")
     print("To take control, either:")
@@ -157,17 +268,24 @@ def run_discovery(
     print("    and a 'Resume Automation' button appears on the page when you're done.")
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless, slow_mo=150 if not headless else 0)
+        # A loopback-only debugging port, one per run (see handoff/remote.py): it lets a person who cannot see
+        # the window, e.g. a headless run, open the live page in DevTools when the run needs them.
+        remote_port = free_loopback_port() if remote_debugging_enabled() else None
+        browser = pw.chromium.launch(
+            headless=headless, slow_mo=150 if not headless else 0, args=launch_args(remote_port) if remote_port else []
+        )
         page = browser.new_page()
-        # Tags every request this run makes so the target app can tell an LLM-driven
-        # discovery action apart from a deterministic replay action or an organic
-        # manual request. See replay/executor.py for the replay-side counterpart.
+        # Tags every request from this run so the app can tell discovery from replay. See
+        # replay/executor.py for the other side.
         page.set_extra_http_headers({"X-Automation-Source": "discovery", "X-Run-Id": run_id})
-        gesture = GestureController(page) if not headless else None
+        # Headless runs get the controller too when the debugging port is open: the banner and the capture of a
+        # person's actions then work through the DevTools link exactly as in a visible window.
+        gesture = GestureController(page) if (not headless or remote_port) else None
         # Passing gesture through lets the risky-action confirm gate show an
         # on-page Approve/Deny banner, not just a terminal prompt.
         handoff = HandoffSession(
-            page=page, run_id=run_id, evidence_dir=evidence_dir, operator=_CliOperator(gesture=gesture)
+            page=page, run_id=run_id, evidence_dir=evidence_dir, remote_debug_port=remote_port,
+            operator=_CliOperator(gesture=gesture, headless=headless, remote_debug_port=remote_port),
         )
         human_wants_control = {"flag": False}
         if gesture is not None:
@@ -186,7 +304,7 @@ def run_discovery(
 
         deadline = time.monotonic() + timeout_s
         step_n = 0
-        url_visit_counts: Counter[str] = Counter()
+        stuck_watch = _StuckWatch()
         try:
             while step_n < max_steps:
                 if time.monotonic() > deadline:
@@ -208,7 +326,7 @@ def run_discovery(
                         logger.info("discovery restarted by human run_id=%s step=%s", run_id, step_n)
                         messages = _restart_from_scratch(executor, goal, target_url)
                         step_n = 0
-                        url_visit_counts = Counter()
+                        stuck_watch.reset()
                         continue
                     if not record.resume:
                         outcome, summary = "human_stopped", f"Human operator ended the run: {record.human_note}"
@@ -242,7 +360,7 @@ def run_discovery(
                         logger.info("discovery restarted by human run_id=%s step=%s", run_id, step_n)
                         messages = _restart_from_scratch(executor, goal, target_url)
                         step_n = 0
-                        url_visit_counts = Counter()
+                        stuck_watch.reset()
                         continue
                     if not record.resume:
                         outcome, summary = "human_stopped", f"Human operator ended the run: {record.human_note}"
@@ -271,10 +389,8 @@ def run_discovery(
                     messages.append({"role": "user", "content": "Please call exactly one tool."})
                     continue
 
-                # disable_parallel_tool_use should make this always length 1, but every
-                # tool_use in an assistant turn requires a matching tool_result in the very
-                # next message regardless, so any extra tool_use past the first gets an
-                # explicit "not executed" result rather than being silently dropped.
+                # Parallel tool use is disabled, so this should be one. Any extra tool_use still
+                # needs a tool_result, so it gets a 'not executed' reply.
                 primary, extra_tool_uses = tool_uses[0], tool_uses[1:]
                 result_blocks = [
                     {
@@ -293,10 +409,9 @@ def run_discovery(
                     claimed_outputs = args.get("outputs", {})
                     unproven = _unproven_outputs(executor.steps, claimed_outputs)
                     if unproven:
-                        # Deterministic validation at the completion boundary: do not finish
-                        # discovery, do not let this become a recordable result, just tell the
-                        # model which claimed value(s) it never proved and loop back for it to
-                        # call read_text and try done again.
+                        # Check at the finish line: if a claimed value was never proven, don't
+                        # finish. Tell the model what's missing so it can read_text and try done
+                        # again.
                         result_blocks.insert(
                             0,
                             {
@@ -319,6 +434,62 @@ def run_discovery(
                         )
                         messages.append({"role": "user", "content": result_blocks})
                         continue
+
+                    declared = _declared_inputs(args.get("inputs"))
+                    input_error, bindings = _check_declared_inputs(executor.steps, executor.raw_values, goal, declared)
+                    if input_error:
+                        # Same completion-boundary rule as outputs: a goal value that is not
+                        # declared as an input would be hardcoded into the reusable artifact.
+                        result_blocks.insert(
+                            0,
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": primary.id,
+                                "content": json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": (
+                                            f"done rejected: {input_error}. `inputs` must list every value the goal "
+                                            "supplied that you applied to a control with fill or select, as "
+                                            "{name: {value, description}} with the value exactly as you entered it, "
+                                            "and nothing the goal did not say. Fix `inputs` and call done again."
+                                        ),
+                                    }
+                                ),
+                            },
+                        )
+                        messages.append({"role": "user", "content": result_blocks})
+                        continue
+                    text_error = _success_text_error(
+                        page, args.get("success_text", ""), claimed_outputs, [v for v, _d in declared.values()]
+                    )
+                    if text_error:
+                        # The checkpoint replay will wait for has to be real, so check it now.
+                        result_blocks.insert(
+                            0,
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": primary.id,
+                                "content": json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": (
+                                            f"done rejected: {text_error}. Give `success_text`: a short phrase copied "
+                                            "exactly from the current page that appears only when the operation "
+                                            "succeeded, then call done again."
+                                        ),
+                                    }
+                                ),
+                            },
+                        )
+                        messages.append({"role": "user", "content": result_blocks})
+                        continue
+                    success_text = collapse(args.get("success_text", ""))
+                    for step in executor.steps:
+                        if step.index in bindings:
+                            step.param_binding = bindings[step.index]
+                    claimed_inputs = {name: value for name, (value, _d) in declared.items()}
+                    input_descriptions = {name: d for name, (_v, d) in declared.items() if d}
 
                     outcome, summary = "done", args.get("summary", "")
                     outputs = claimed_outputs
@@ -344,20 +515,16 @@ def run_discovery(
                         )
                     )
                     if record.restart:
-                        # Restart takes priority over resume/end: same session, but the
-                        # conversation that led to this give_up (including the give_up
-                        # tool_use itself) is discarded along with everything else, so
-                        # there is no dangling tool_use to match a result for.
+                        # Restart wins over resume or end. The whole conversation is dropped,
+                        # including this give_up, so no tool_use is left without a result.
                         logger.info("discovery restarted by human run_id=%s step=%s", run_id, step_n)
                         messages = _restart_from_scratch(executor, goal, target_url)
                         step_n = 0
-                        url_visit_counts = Counter()
+                        stuck_watch.reset()
                         continue
                     if not record.resume:
-                        # The human judged this unrecoverable: end the run here rather than loop
-                        # back into another give_up. Without this, an unfixable business fact
-                        # (e.g. a recipient that will never exist) causes the agent to re-escalate
-                        # the same conclusion every turn until max_steps.
+                        # A human called it unrecoverable, so end here. Otherwise the agent re-
+                        # escalates the same conclusion every turn until max_steps.
                         _record_captured_actions(executor, record.captured_actions)
                         outcome, summary = "give_up", f"{reason} (human confirmed: {record.human_note})"
                         result_blocks.insert(
@@ -382,22 +549,12 @@ def run_discovery(
                     else:
                         result = method(**args)
 
-                    # Structural nudge, not just a prompt instruction: every action's own tool
-                    # result already tells the model whether it worked; nothing tells it "you've
-                    # been here before." Against a structurally dead end (a locked account with
-                    # no unlock path), the model kept trying other tabs for the full step budget
-                    # since every individual click still technically succeeded. Counting
-                    # revisits and attaching a nudge once a page repeats does not override the
-                    # model's judgment, but stops relying solely on it to notice a loop.
-                    current_url = page.url
-                    url_visit_counts[current_url] += 1
-                    if url_visit_counts[current_url] > REPEAT_VISIT_WARNING_THRESHOLD and isinstance(result, dict):
-                        result["repeat_visit_warning"] = (
-                            f"You have now reached this exact page ({current_url}) "
-                            f"{url_visit_counts[current_url]} times this run. If there is no "
-                            "actionable path from here toward the goal, stop exploring "
-                            "alternatives and call give_up now."
-                        )
+                    # A nudge for dead ends. Each click succeeds, so the model never notices it's going in
+                    # circles; telling it, without overriding its judgment, is what this does.
+                    warning = stuck_watch.observe(page, name, args) if isinstance(result, dict) else None
+                    if warning:
+                        logger.warning("stuck nudge run_id=%s step=%s: %s", run_id, step_n, warning)
+                        result["repeat_visit_warning"] = warning
 
                 result_blocks.insert(
                     0, {"type": "tool_result", "tool_use_id": primary.id, "content": json.dumps(result, default=str)}
@@ -427,6 +584,9 @@ def run_discovery(
             started_at=started_at,
             ended_at=datetime.now(timezone.utc).isoformat(),
             evidence_dir=str(evidence_dir),
+            inputs=claimed_inputs,
+            input_descriptions=input_descriptions,
+            success_text=success_text,
         )
         _write_evidence(result)
         return result
@@ -437,13 +597,7 @@ def _redact_for_evidence(obj: Any) -> Any:
     re-resolved, so a plain substring substitution is safe here. Covers what
     StepLog-creation-time redaction does not: rationale text and a step's
     raw target."""
-    if isinstance(obj, str):
-        return redact_text(obj)
-    if isinstance(obj, dict):
-        return {k: _redact_for_evidence(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_redact_for_evidence(v) for v in obj]
-    return obj
+    return redact_obj(obj)
 
 
 def _write_evidence(result: DiscoveryResult) -> None:
@@ -460,4 +614,5 @@ def _write_evidence(result: DiscoveryResult) -> None:
 
     summary_path = evidence_dir / "run_summary.json"
     summary = {k: v for k, v in asdict(result).items() if k != "steps"}
-    summary_path.write_text(json.dumps(summary, indent=2, default=str))
+    summary["inputs"] = {name: redact_value(name, value) for name, value in result.inputs.items()}
+    summary_path.write_text(json.dumps(_redact_for_evidence(summary), indent=2, default=str))

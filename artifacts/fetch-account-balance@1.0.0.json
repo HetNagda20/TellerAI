@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "status": "draft",
   "description": "Looks up a member and returns their current checking and savings balances.",
-  "goal_template": "Fetch the account balance for member 10001.",
+  "goal_template": "Look up member {member_id} and read their current checking balance and savings balance.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
@@ -15,7 +15,7 @@
       "name": "member_id",
       "type": "number",
       "required": true,
-      "description": "Value for member_id.",
+      "description": "Member ID looked up",
       "example": "10001"
     }
   ],
@@ -24,13 +24,13 @@
       "name": "checking_balance",
       "type": "string",
       "description": "Value read for checking_balance.",
-      "source_step": 4
+      "source_step": 5
     },
     {
-      "name": "current_savings_balance",
+      "name": "savings_balance",
       "type": "string",
-      "description": "Value read for current_savings_balance.",
-      "source_step": 5
+      "description": "Value read for savings_balance.",
+      "source_step": 6
     }
   ],
   "steps": [
@@ -48,7 +48,7 @@
     {
       "index": 1,
       "action": "click",
-      "description": "Navigate to Accounts section to find member account balance",
+      "description": "Navigate to Accounts section to look up member balances",
       "target": {
         "candidates": [
           {
@@ -92,8 +92,53 @@
     },
     {
       "index": 2,
+      "action": "click",
+      "description": "Go to member inquiry to look up member 10001",
+      "target": {
+        "candidates": [
+          {
+            "strategy": "role_name",
+            "value": {
+              "role": "link",
+              "name": "Member Inquiry"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "text",
+            "value": {
+              "text": "Member Inquiry"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "css_path",
+            "value": {
+              "css": "table > tbody > tr:nth-of-type(2) > td > a"
+            },
+            "observed_at_record_time": false
+          },
+          {
+            "strategy": "coordinates",
+            "value": {
+              "x": 73,
+              "y": 129
+            },
+            "observed_at_record_time": false
+          }
+        ],
+        "frame_chain": []
+      },
+      "value_template": null,
+      "extract_as": null,
+      "checkpoint": null,
+      "risk": "safe",
+      "source": "llm"
+    },
+    {
+      "index": 3,
       "action": "fill",
-      "description": "Enter the member ID to search for their account",
+      "description": "Enter member ID to search for",
       "target": {
         "candidates": [
           {
@@ -136,9 +181,9 @@
       "source": "llm"
     },
     {
-      "index": 3,
+      "index": 4,
       "action": "click",
-      "description": "Submit search for member 10001",
+      "description": "Search for member 10001",
       "target": {
         "candidates": [
           {
@@ -181,23 +226,23 @@
       "source": "llm"
     },
     {
-      "index": 4,
+      "index": 5,
       "action": "read_text",
-      "description": "Read the checking balance value for member 10001",
+      "description": "Read the checking balance value",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "text",
-              "name": "$492.44"
+              "name": "$752.44"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "$492.44"
+              "text": "$752.44"
             },
             "observed_at_record_time": false
           },
@@ -226,9 +271,9 @@
       "source": "llm"
     },
     {
-      "index": 5,
+      "index": 6,
       "action": "read_text",
-      "description": "Read the current savings balance value for member 10001",
+      "description": "Read the savings balance value",
       "target": {
         "candidates": [
           {
@@ -267,7 +312,7 @@
             {
               "strategy": "css_path",
               "value": {
-                "css": "iframe[src*=\"/member/{member_id}/balance-frame\"]"
+                "css": "iframe"
               },
               "observed_at_record_time": false
             }
@@ -275,20 +320,23 @@
         ]
       },
       "value_template": null,
-      "extract_as": "current_savings_balance",
+      "extract_as": "savings_balance",
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
     }
   ],
   "final_checkpoint": {
-    "kind": "url_contains",
-    "value": "/member/{member_id}",
+    "kind": "text_contains",
+    "value": "Member Record",
     "target": null
   },
+  "step_timeout_ms": null,
+  "checkpoint_timeout_ms": null,
   "business_outcomes": [],
   "recoverable_conditions": [],
+  "commit_verification": null,
   "overall_risk": "safe",
-  "created_from_run_id": "discovery_20260928T174621Z",
-  "created_at": "2026-09-28T17:46:36.140128Z"
+  "created_from_run_id": "discovery_20260930T170932Z",
+  "created_at": "2026-09-30T17:09:43.395026Z"
 }

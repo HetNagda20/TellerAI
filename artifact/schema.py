@@ -1,26 +1,5 @@
-"""The capability artifact schema.
-
-An artifact is a versioned, typed, reviewable description of a flow that an
-AI agent can invoke as a capability. It is produced once by a successful
-LLM-driven discovery run and then replayed deterministically, with no model
-in the decision loop.
-
-Design choices (see REPORT.md section 2 for the full rationale):
-
-- Locator targeting is a ranked list of independent strategies
-  (LocatorCandidate), not a single selector. Legacy/no-test-ID surfaces mean
-  any single strategy can fail; replay tries them in order and records
-  which one hit, itself a useful drift signal.
-- frame_chain lets a target live inside nested iframes, because "how you
-  get to the right document" is a real part of legacy web apps, not just
-  "how you find the element".
-- inputs/outputs are typed and named independently of the step list, so an
-  agent invoking this capability sees a function-like contract, not a
-  transcript.
-- target carries app_id/tenant_id even though this project only implements
-  a single tenant, so the schema does not need to change shape later to
-  support the same app across many tenants.
-"""
+"""The capability artifact schema: a versioned, typed, reviewable description of a flow. Discovery
+records it once, replay runs it with no model. Targets use ranked locator candidates."""
 
 from __future__ import annotations
 
@@ -51,7 +30,7 @@ class LocatorCandidate(BaseModel):
     )
     observed_at_record_time: bool = Field(
         default=False,
-        description="True if this exact candidate is the one that actually resolved during discovery.",
+        description="Reserved. The current recorder does not set it (always false); replay reports the strategy that resolved in its strategy_log instead.",
     )
 
 
@@ -75,7 +54,6 @@ class ActionType(str, Enum):
     FILL = "fill"
     SELECT = "select"
     READ_TEXT = "read_text"
-    WAIT_FOR = "wait_for"
 
 
 class CheckpointKind(str, Enum):
@@ -142,6 +120,10 @@ class InputParam(BaseModel):
     required: bool = True
     description: str
     example: Optional[str] = None
+    allowed_values: Optional[list[str]] = Field(
+        default=None,
+        description="The choices of the dropdown this input fills, as the page shows them. None for free-text inputs.",
+    )
 
 
 class OutputField(BaseModel):
@@ -154,12 +136,8 @@ class OutputField(BaseModel):
 
 
 class TargetApp(BaseModel):
-    """Identifies the surface this capability was recorded against.
-
-    app_id names the underlying vendor product/app (stable across tenants);
-    tenant_id/base_url are the specific deployment this recording came from.
-    Kept separate on purpose, see REPORT.md section 4 on multi-tenant reuse.
-    """
+    """The surface a capability was recorded against. app_id is stable across tenants; tenant_id and
+    base_url identify the deployment."""
 
     app_id: str
     tenant_id: Optional[str] = None
@@ -173,46 +151,51 @@ class ArtifactStatus(str, Enum):
 
 
 class BusinessOutcomeSignature(BaseModel):
-    """A legitimate, non-error result the replay can detect and report as
-    data, not as a crash. Checked after every step; the first match
-    short-circuits the remaining steps and becomes the replay result's
-    business_outcome.
-    """
+    """A legitimate non-error result that replay reports as data, not a crash. The first match ends
+    the run as the business_outcome."""
 
     name: str = Field(description="e.g. 'member_not_found', 'account_locked'.")
     detect: Checkpoint
     description: str
 
 
+class RecoveryAction(BaseModel):
+    """One action of a multi-action recovery, such as signing back in. `value` may contain {env:NAME}, which replay
+    fills from its environment when it runs. Secrets therefore never appear in an artifact, in a log, or in evidence."""
+
+    action: ActionType
+    target: Optional[Target] = None
+    value: Optional[str] = None
+
+
 class RecoverableCondition(BaseModel):
-    """A known transient/interstitial state: detect it, take one bounded
-    recovery action, then re-check the current step's own target instead of
-    failing. Not a retry loop, one recovery attempt per occurrence.
+    """A known transient/interstitial state: detect it, take the declared recovery
+    (one action, or a short sequence), then re-check the current step's own target
+    instead of failing. Not a retry loop, one recovery attempt per occurrence.
     """
 
     name: str
     detect: Checkpoint
-    recovery_action: ActionType
+    recovery_action: Optional[ActionType] = None
     recovery_target: Optional[Target] = None
     recovery_value: Optional[str] = None
+    recovery_sequence: list[RecoveryAction] = Field(
+        default_factory=list, description="If present, run these in order instead of the single action above."
+    )
+    restart_after_recovery: bool = Field(
+        default=False,
+        description=(
+            "True when the recovery loses the page the run was on (signing back in lands on a fresh page, "
+            "and a half-filled form is gone). Replay then re-runs the recorded steps from the start, once, as long as "
+            "no risky step has run; if one has, whether it committed is checked first."
+        ),
+    )
     description: str
 
 
 class CommitVerification(BaseModel):
-    """Reviewer-declared: how to check, after a step fails at or beyond this
-    artifact's own risky confirm step, whether the underlying action
-    actually committed server-side before the failure (e.g. the backend
-    applied a transfer but the confirmation page never rendered). A
-    discovery run only demonstrates the happy path, so like
-    business_outcomes and recoverable_conditions, this is domain knowledge
-    a reviewer supplies, never something discovery infers on its own.
-
-    Deliberately just a navigate plus a Checkpoint, reusing the same
-    primitives as everything else in this schema, not a new resolution
-    framework. Deliberately fallible-safe: if this check itself cannot
-    complete, replay must treat that as genuinely unknown, never silently
-    fold it into either a success or a clean failure.
-    """
+    """Reviewer-declared check for whether an action committed before a failure: a navigate plus a
+    checkpoint. If the check itself can't finish, the answer is unknown."""
 
     navigate_template: str = Field(
         description="URL template (may reference this capability's input params) to check for evidence the action committed, e.g. a transaction-history page."
@@ -238,6 +221,12 @@ class Artifact(BaseModel):
     outputs: list[OutputField]
     steps: list[Step]
     final_checkpoint: Checkpoint
+    step_timeout_ms: Optional[int] = Field(
+        default=None, description="How long replay waits for each step's target to appear and act. None uses the engine default; slow legacy apps raise it."
+    )
+    checkpoint_timeout_ms: Optional[int] = Field(
+        default=None, description="How long replay polls for the final (and any inline) checkpoint before failing. None uses the engine default."
+    )
 
     business_outcomes: list[BusinessOutcomeSignature] = Field(default_factory=list)
     recoverable_conditions: list[RecoverableCondition] = Field(default_factory=list)

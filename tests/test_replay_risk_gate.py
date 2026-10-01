@@ -1,47 +1,14 @@
-"""Per-artifact approval for risky steps on the replay path.
-
-Policy under test: an artifact with status=approved runs its risky
-(risk="confirm") steps unattended and flags them in the result; any other
-artifact containing a risky step must get a live human approval before that
-step, and fails closed (never executes it) when there is no approver or the
-human declines. Runs the real transfer-funds@1.2.1 artifact against the mock
-app and checks the app's own balances, not just the result object.
-"""
-
-import re
-import urllib.request
+"""Per-artifact approval on replay. An approved artifact runs risky steps unattended and flags them.
+Any other needs a live approval first, and fails closed without one or when denied."""
 
 import pytest
 
 from artifact.schema import ArtifactStatus
-from artifact.store import ARTIFACTS_DIR, load_path
 from replay.executor import _needs_per_run_approval, replay_artifact
+from tests.conftest import ledger, load_capability, member
 
-BASE = "http://127.0.0.1:8000"
-ARTIFACT_PATH = ARTIFACTS_DIR / "transfer-funds@1.2.1.json"
-PARAMS = {"member_id": "10001", "from_account": "checking", "to_member_id": "20001", "to_account": "checking", "amount": "5"}
-
-
-def _mock_app_up() -> bool:
-    try:
-        return urllib.request.urlopen(BASE + "/", timeout=1).status == 200
-    except Exception:
-        return False
-
-
-needs_app = pytest.mark.skipif(
-    not _mock_app_up() or not ARTIFACT_PATH.exists(),
-    reason="mock app is not running at 127.0.0.1:8000, or transfer-funds@1.2.1 is missing",
-)
-
-
-def _checking_balance(member_id: str) -> float:
-    html = urllib.request.urlopen(f"{BASE}/member/{member_id}").read().decode()
-    return float(re.search(r"Checking Balance:.*?\$([\d,.]+)", html, re.S).group(1).replace(",", ""))
-
-
-def _artifact(status: ArtifactStatus):
-    return load_path(ARTIFACT_PATH).model_copy(update={"status": status})
+PARAMS = {"from_member_id": "10001", "from_account_type": "checking", "to_member_id": "20001", "to_account_type": "checking", "amount": "5"}
+RISKY_STEP = 11
 
 
 class _ScriptedOperator:
@@ -54,67 +21,51 @@ class _ScriptedOperator:
         return self.approve, "scripted"
 
 
-def test_needs_per_run_approval_only_for_unapproved_artifacts_with_a_risky_step():
-    draft = load_path(ARTIFACT_PATH).model_copy(update={"status": ArtifactStatus.DRAFT}) if ARTIFACT_PATH.exists() else None
-    if draft is None:
-        pytest.skip("transfer-funds@1.2.1 is missing")
-    assert any(s.risk == "confirm" for s in draft.steps)
+def _balances() -> tuple[float, float]:
+    return member("10001")["checking_balance"], member("20001")["checking_balance"]
+
+
+def test_draft_artifact_with_a_risky_step_and_no_approver_is_refused_before_any_step(base_url):
+    draft = load_capability("transfer-funds", "1.0.0", base_url, ArtifactStatus.DRAFT)
     assert _needs_per_run_approval(draft) is True
     assert _needs_per_run_approval(draft.model_copy(update={"status": ArtifactStatus.APPROVED})) is False
-
     no_risk = draft.model_copy(update={"steps": [s.model_copy(update={"risk": "safe"}) for s in draft.steps]})
     assert _needs_per_run_approval(no_risk) is False
+    before = _balances()
 
-
-@needs_app
-def test_draft_artifact_headless_with_no_approver_is_refused_before_any_step():
-    before = _checking_balance("10001")
-    result = replay_artifact(_artifact(ArtifactStatus.DRAFT), PARAMS, headless=True)
+    result = replay_artifact(draft, PARAMS, headless=True)
 
     assert result.kind == "hard_failure"
     assert result.steps_executed == 0
-    assert result.failure.step_index == 11
-    assert "draft" in result.failure.message
-    assert _checking_balance("10001") == before
+    assert result.failure.step_index == RISKY_STEP and "draft" in result.failure.message
+    assert _balances() == before
 
 
-@needs_app
-def test_draft_artifact_runs_the_risky_step_only_after_a_human_approves():
-    before_from, before_to = _checking_balance("10001"), _checking_balance("20001")
-    operator = _ScriptedOperator(approve=True)
-    result = replay_artifact(_artifact(ArtifactStatus.DRAFT), PARAMS, headless=True, operator_factory=lambda page: operator)
+def test_a_draft_artifacts_risky_step_never_runs_if_denied_and_runs_only_after_a_human_approves(base_url):
+    draft = load_capability("transfer-funds", "1.0.0", base_url, ArtifactStatus.DRAFT)
+    before = _balances()
 
+    denier = _ScriptedOperator(approve=False)
+    denied = replay_artifact(draft, PARAMS, headless=True, operator_factory=lambda page: denier)
+    assert denied.kind == "hard_failure"
+    assert denied.failure.step_index == RISKY_STEP and denied.failure.observed == "denied"
+    assert [(e.reason, e.outcome) for e in denied.escalations] == [("risky_action_confirm", "denied")]
+    assert denied.steps_executed == RISKY_STEP  # every step before the gate ran; the gated one did not
+    assert _balances() == before and ledger("10001") == []
+
+    approver = _ScriptedOperator(approve=True)
+    result = replay_artifact(draft, PARAMS, headless=True, operator_factory=lambda page: approver)
     assert result.kind == "success"
-    assert len(operator.requests) == 1
-    assert operator.requests[0].reason == "risky_action_confirm"
+    assert [r.reason for r in approver.requests] == ["risky_action_confirm"]
     assert [(e.reason, e.outcome) for e in result.escalations] == [("risky_action_confirm", "approved")]
     assert result.unattended_risky_steps == []
-    assert _checking_balance("10001") == pytest.approx(before_from - 5)
-    assert _checking_balance("20001") == pytest.approx(before_to + 5)
+    assert _balances() == (pytest.approx(812.44 - 5), pytest.approx(2210.77 + 5))
 
 
-@needs_app
-def test_draft_artifact_denied_by_the_human_never_executes_the_risky_step():
-    before_from, before_to = _checking_balance("10001"), _checking_balance("20001")
-    operator = _ScriptedOperator(approve=False)
-    result = replay_artifact(_artifact(ArtifactStatus.DRAFT), PARAMS, headless=True, operator_factory=lambda page: operator)
-
-    assert result.kind == "hard_failure"
-    assert result.failure.step_index == 11
-    assert result.failure.observed == "denied"
-    assert [(e.reason, e.outcome) for e in result.escalations] == [("risky_action_confirm", "denied")]
-    assert result.steps_executed == 11  # every step before the gate ran; the gated one did not
-    assert _checking_balance("10001") == before_from
-    assert _checking_balance("20001") == before_to
-
-
-@needs_app
-def test_approved_artifact_runs_unattended_and_flags_the_risky_step():
-    before_from, before_to = _checking_balance("10001"), _checking_balance("20001")
-    result = replay_artifact(_artifact(ArtifactStatus.APPROVED), PARAMS, headless=True)
+def test_approved_artifact_runs_unattended_and_flags_the_risky_step(base_url):
+    result = replay_artifact(load_capability("transfer-funds", "1.0.0", base_url), PARAMS, headless=True)
 
     assert result.kind == "success"
     assert result.escalations == []
-    assert result.unattended_risky_steps == [11]
-    assert _checking_balance("10001") == pytest.approx(before_from - 5)
-    assert _checking_balance("20001") == pytest.approx(before_to + 5)
+    assert result.unattended_risky_steps == [RISKY_STEP]
+    assert _balances() == (pytest.approx(812.44 - 5), pytest.approx(2210.77 + 5))

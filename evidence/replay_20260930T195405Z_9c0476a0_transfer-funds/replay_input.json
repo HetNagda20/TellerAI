@@ -1,0 +1,11 @@
+{
+  "capability_id": "transfer-funds",
+  "version": "1.0.0",
+  "params": {
+    "from_member_id": "10002",
+    "from_account_type": "Savings",
+    "to_member_id": "20001",
+    "to_account_type": "Checking",
+    "amount": "40"
+  }
+}

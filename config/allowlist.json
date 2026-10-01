@@ -1,21 +1,18 @@
 {
   "allowed_domains": [
     "127.0.0.1",
-    "localhost",
-    "www.qapractice.com"
+    "localhost"
   ],
   "allowed_path_prefixes": [
     "/",
     "/search",
-    "/member",
-    "/practice-login-form"
+    "/member"
   ],
   "allowed_actions": [
     "navigate",
     "click",
     "fill",
     "select",
-    "read_text",
-    "wait_for"
+    "read_text"
   ]
 }

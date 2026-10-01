@@ -1,0 +1,49 @@
+{
+  "kind": "business_outcome",
+  "capability_id": "fetch-account-balance",
+  "version": "1.0.0",
+  "run_id": "replay_20260930T195358Z_4b154d39",
+  "outputs": {},
+  "business_outcome_name": "member_not_found",
+  "business_outcome_description": "The given member ID does not exist in the core system.",
+  "business_outcome_source": "app",
+  "failure": null,
+  "recovered_via_commit_verification": false,
+  "commit_attempts": 1,
+  "unattended_risky_steps": [],
+  "steps_executed": 5,
+  "strategy_log": [
+    {
+      "step_index": 0,
+      "action": "navigate",
+      "strategy_used": null,
+      "recovered_condition": null
+    },
+    {
+      "step_index": 1,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 2,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 3,
+      "action": "fill",
+      "strategy_used": "css_path",
+      "recovered_condition": null
+    },
+    {
+      "step_index": 4,
+      "action": "click",
+      "strategy_used": "role_name",
+      "recovered_condition": null
+    }
+  ],
+  "escalations": [],
+  "evidence_dir": "evidence/replay_20260930T195358Z_4b154d39_fetch-account-balance"
+}

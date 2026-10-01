@@ -33,11 +33,8 @@ class Allowlist:
         host = parsed.hostname or ""
         if host not in self.allowed_domains:
             return False
-        # A bare-host URL (no trailing slash, e.g. "http://host:port") parses to an
-        # empty path, not "/", which then never matches a "/" prefix even though
-        # that is exactly the root path a browser would actually load. A real
-        # discovery run got blocked 4 times navigating to a target URL with no
-        # trailing slash before self-correcting. Treat "" the same as "/" here.
+        # A bare host URL parses to an empty path, which never matched the '/' prefix. Discovery got
+        # blocked four times on this once. Treat '' like '/'.
         path = parsed.path or "/"
         return any(path.startswith(p) for p in self.allowed_path_prefixes)
 

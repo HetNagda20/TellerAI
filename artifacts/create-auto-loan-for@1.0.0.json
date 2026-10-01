@@ -2,20 +2,59 @@
   "capability_id": "create-auto-loan-for",
   "version": "1.0.0",
   "status": "draft",
-  "description": "Auto-recorded from Task AI goal: Create a $12,500 auto loan for member 20001 at 6.25% interest.",
-  "goal_template": "Create a $12,500 auto loan for member 20001 at 6.25% interest.",
+  "description": "Creates a new loan for a member with a given amount, purpose, and interest rate.",
+  "goal_template": "Create a ${loan_amount} {loan_purpose} loan for member {member_id} at {interest_rate}% interest and reach the confirmation screen.",
   "target_app": {
     "app_id": "cu-servicing-console",
     "tenant_id": null,
     "base_url": "http://127.0.0.1:8000",
     "entry_path": "/"
   },
-  "inputs": [],
+  "inputs": [
+    {
+      "name": "member_id",
+      "type": "number",
+      "required": true,
+      "description": "Member ID for whom the loan is created",
+      "example": "20001",
+      "allowed_values": null
+    },
+    {
+      "name": "loan_amount",
+      "type": "number",
+      "required": true,
+      "description": "Loan amount in dollars",
+      "example": "12500",
+      "allowed_values": null
+    },
+    {
+      "name": "loan_purpose",
+      "type": "string",
+      "required": true,
+      "description": "Purpose/type of the loan",
+      "example": "Auto",
+      "allowed_values": [
+        "Auto",
+        "Home Improvement",
+        "Personal",
+        "Debt Consolidation",
+        "Other"
+      ]
+    },
+    {
+      "name": "interest_rate",
+      "type": "number",
+      "required": true,
+      "description": "Interest rate percentage for the loan",
+      "example": "6.25",
+      "allowed_values": null
+    }
+  ],
   "outputs": [
     {
-      "name": "loan_account_id",
+      "name": "loan_id",
       "type": "string",
-      "description": "Value read for loan_account_id.",
+      "description": "Value read for loan_id.",
       "source_step": 10
     }
   ],
@@ -34,7 +73,7 @@
     {
       "index": 1,
       "action": "click",
-      "description": "Navigate to Loans section to create a new auto loan.",
+      "description": "Navigate to Loans section to create a new loan",
       "target": {
         "candidates": [
           {
@@ -63,7 +102,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 199,
-              "y": 44
+              "y": 45
             },
             "observed_at_record_time": false
           }
@@ -79,36 +118,36 @@
     {
       "index": 2,
       "action": "click",
-      "description": "Open the Create New Loan form.",
+      "description": "Go to Loan Origination to create a new loan",
       "target": {
         "candidates": [
           {
             "strategy": "role_name",
             "value": {
               "role": "link",
-              "name": "Create New Loan"
+              "name": "Loan Origination"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "text",
             "value": {
-              "text": "Create New Loan"
+              "text": "Loan Origination"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "css_path",
             "value": {
-              "css": "table > tbody > tr:nth-of-type(3) > td:nth-of-type(1) > a"
+              "css": "table > tbody > tr:nth-of-type(3) > td > a"
             },
             "observed_at_record_time": false
           },
           {
             "strategy": "coordinates",
             "value": {
-              "x": 76,
-              "y": 160
+              "x": 75,
+              "y": 159
             },
             "observed_at_record_time": false
           }
@@ -124,7 +163,7 @@
     {
       "index": 3,
       "action": "fill",
-      "description": "Enter the member ID to look up before creating the loan.",
+      "description": "Enter the member ID to search for",
       "target": {
         "candidates": [
           {
@@ -152,7 +191,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 150,
+              "x": 152,
               "y": 127
             },
             "observed_at_record_time": false
@@ -160,7 +199,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "20001",
+      "value_template": "{member_id}",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -169,7 +208,7 @@
     {
       "index": 4,
       "action": "click",
-      "description": "Search for the member to proceed with loan creation.",
+      "description": "Search for the member with ID 20001",
       "target": {
         "candidates": [
           {
@@ -197,7 +236,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 230,
+              "x": 234,
               "y": 127
             },
             "observed_at_record_time": false
@@ -214,7 +253,7 @@
     {
       "index": 5,
       "action": "fill",
-      "description": "Enter the loan amount.",
+      "description": "Enter the loan amount",
       "target": {
         "candidates": [
           {
@@ -227,7 +266,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 184,
+              "x": 186,
               "y": 121
             },
             "observed_at_record_time": false
@@ -235,7 +274,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "12500",
+      "value_template": "{loan_amount}",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -244,7 +283,7 @@
     {
       "index": 6,
       "action": "select",
-      "description": "Set loan purpose to Auto as requested.",
+      "description": "Select Auto as the loan purpose",
       "target": {
         "candidates": [
           {
@@ -257,7 +296,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 207,
+              "x": 208,
               "y": 145
             },
             "observed_at_record_time": false
@@ -265,7 +304,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "Auto",
+      "value_template": "{loan_purpose}",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -274,7 +313,7 @@
     {
       "index": 7,
       "action": "fill",
-      "description": "Enter the interest rate of 6.25%.",
+      "description": "Enter the interest rate",
       "target": {
         "candidates": [
           {
@@ -287,7 +326,7 @@
           {
             "strategy": "coordinates",
             "value": {
-              "x": 171,
+              "x": 172,
               "y": 169
             },
             "observed_at_record_time": false
@@ -295,7 +334,7 @@
         ],
         "frame_chain": []
       },
-      "value_template": "6.25",
+      "value_template": "{interest_rate}",
       "extract_as": null,
       "checkpoint": null,
       "risk": "safe",
@@ -304,7 +343,7 @@
     {
       "index": 8,
       "action": "click",
-      "description": "Proceed to review the loan details before final submission.",
+      "description": "Proceed to review the loan details",
       "target": {
         "candidates": [
           {
@@ -333,7 +372,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 48,
-              "y": 195
+              "y": 194
             },
             "observed_at_record_time": false
           }
@@ -349,7 +388,7 @@
     {
       "index": 9,
       "action": "click",
-      "description": "Confirm and create the loan with the reviewed details.",
+      "description": "Confirm and create the loan to reach the confirmation screen",
       "target": {
         "candidates": [
           {
@@ -378,7 +417,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 92,
-              "y": 186
+              "y": 185
             },
             "observed_at_record_time": false
           }
@@ -394,7 +433,7 @@
     {
       "index": 10,
       "action": "read_text",
-      "description": "Read the loan account number confirming the successful creation.",
+      "description": "Read the generated loan account identifier for the confirmation output",
       "target": {
         "candidates": [
           {
@@ -423,7 +462,7 @@
             "strategy": "coordinates",
             "value": {
               "x": 110,
-              "y": 134
+              "y": 133
             },
             "observed_at_record_time": false
           }
@@ -431,21 +470,31 @@
         "frame_chain": []
       },
       "value_template": null,
-      "extract_as": "loan_account_id",
+      "extract_as": "loan_id",
       "checkpoint": null,
       "risk": "safe",
       "source": "llm"
     }
   ],
   "final_checkpoint": {
-    "kind": "url_contains",
-    "value": "/member/20001/loans/new/confirm",
+    "kind": "text_contains",
+    "value": "Loan Account Created",
     "target": null
   },
+  "step_timeout_ms": null,
+  "checkpoint_timeout_ms": null,
   "business_outcomes": [],
   "recoverable_conditions": [],
-  "commit_verification": null,
+  "commit_verification": {
+    "navigate_template": "{base_url}/member/{primary_id}/loans",
+    "detect": {
+      "kind": "text_contains",
+      "value": "{run_id}",
+      "target": null
+    },
+    "description": "Checks the member's loan list for this attempt's run id in the Source column."
+  },
   "overall_risk": "confirm",
-  "created_from_run_id": "discovery_20260928T221544Z",
-  "created_at": "2026-09-28T22:16:15.004698Z"
+  "created_from_run_id": "discovery_20260930T194941Z",
+  "created_at": "2026-09-30T19:50:03.148370Z"
 }
